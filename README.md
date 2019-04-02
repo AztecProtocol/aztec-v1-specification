@@ -2,37 +2,68 @@
 
 ## Table of contents  
 
-1.  [Architecture](#architecture)  
-    1.  [Cryptography Engine](#the-aztec-cryptography-engine)
-    1.  [AZTEC ABI Encodings](#abi-encoding-and-aztec-data-types) 
-        1.  [Note ABI](#AZTEC-note-ABI)  
-        1.  [UXTO note ABI](#type-1-uxto-notes)  
-        1.  [Treasury note ABI](#type-2-El-Gamal-treasury-notes)
-        1.  [Note metadata ABI](#note-metadata-recovering-viewing-keys-and-shared-secrets)
-1.  [Note Registry](#the-note-registry)  
-1.  [ACE](#ace-the-aztec-cryptography-engine)
-    1.  [Proof identification](#validating-aztec-proofs-defining-the-proofs-identifier)  
-    1.  [proofOutputs ABI](#enacting-confidential-transfer-instructions-defining-the-abi-encoding-of-proofoutputs)
-    1.  [proofOutput ABI](#abi-encoding-for-bytes-proofoutput)  
-    1.  [Cataloguing-valid-proofs](#cataloguing-valid-proofs-inside-ace)  
-    1.  [Responsibilities of ACE](#the-key-responsibilities-of-ace)  
-1.  [Contract interactions](#contract-interactions)
-    1.  [Bilateral swap interactions](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-bilateral-swaps)
-1.  [Validating an AZTEC proof](#validating-an-aztec-proof)  
-1.  [Creating a note registry](#creating-a-note-registry)  
-1.  [Processing transfer instructions](#processing-a-transfer-instruction)  
-1.  [Minting AZTEC notes](#minting-aztec-notes)  
-1.  [Burning AZTEC notes](#burning-aztec-notes)  
-1.  [Zero-knowledge assets](#interacting-with-ace-zkasset)
-    1. [Creating a confidential asset](#creating-a-confidential-asset)  
-    1. [Issuing confidential transactions](#issuing-a-confidential-transaction-confidentialtransfer)  
-    1. [Issuing delegated confidential transactions](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
-    1. [Approving confidential notes](#confidentialapprove)
-1.  [AZTEC Verifiers - JoinSplit](#aztec-verifiers-joinsplitsol)
-1.  [Appendix](#appendix)
-    1.  [Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
-    1.  [Interest Streaming](#b-interest-streaming-via-AZTEC-notes)  
-1.  [Glossary](#glossary)
+- [AZTEC Protocol 1.0.0 specification](#aztec-protocol-100-specification)
+  - [Table of contents](#table-of-contents)
+- [Architecture](#architecture)
+  - [The AZTEC Cryptography Engine](#the-aztec-cryptography-engine)
+  - [ABI encoding and AZTEC data 'types'](#abi-encoding-and-aztec-data-types)
+    - [AZTEC note ABI](#aztec-note-abi)
+    - [Type 1: UXTO notes](#type-1-uxto-notes)
+    - [Type 2: El-Gamal treasury notes](#type-2-el-gamal-treasury-notes)
+    - [Note metadata, recovering viewing keys and shared secrets](#note-metadata-recovering-viewing-keys-and-shared-secrets)
+- [The Note Registry](#the-note-registry)
+- [ACE, the AZTEC Cryptography Engine](#ace-the-aztec-cryptography-engine)
+  - [Validating AZTEC proofs - defining the proof's identifier](#validating-aztec-proofs---defining-the-proofs-identifier)
+  - [Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs](#enacting-confidential-transfer-instructions---defining-the-abi-encoding-of-proofoutputs)
+  - [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
+  - [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
+  - [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
+- [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
+    - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
+- [Contract Interactions](#contract-interactions)
+  - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-bilateral-swaps)
+    - [(1-5) : Validating the proof](#1-5--validating-the-proof)
+    - [(6-8): Issuing a transfer instruction to `zkERC20 A`](#6-8-issuing-a-transfer-instruction-to-zkerc20-a)
+    - [(9-16): Processing the transfer instruction](#9-16-processing-the-transfer-instruction)
+  - [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
+- [Validating an AZTEC proof](#validating-an-aztec-proof)
+- [Creating a note registry](#creating-a-note-registry)
+  - [Note Registry Variables](#note-registry-variables)
+    - [`bytes32 confidentialTotalMinted`](#bytes32-confidentialtotalminted)
+    - [`bytes32 confidentialTotalBurned`](#bytes32-confidentialtotalburned)
+    - [`uint256 scalingFactor`](#uint256-scalingfactor)
+    - [`uint256 totalSupply`](#uint256-totalsupply)
+    - [`ERC20 linkedToken`](#erc20-linkedtoken)
+- [Processing a transfer instruction](#processing-a-transfer-instruction)
+    - [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
+- [Minting AZTEC notes](#minting-aztec-notes)
+  - [Minting and tokens](#minting-and-tokens)
+- [Burning AZTEC notes](#burning-aztec-notes)
+- [Interacting with ACE: zkAsset](#interacting-with-ace-zkasset)
+  - [Creating a confidential asset](#creating-a-confidential-asset)
+  - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
+  - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
+  - [confidentialApprove](#confidentialapprove)
+- [AZTEC Verifiers: JoinSplit.sol](#aztec-verifiers-joinsplitsol)
+- [AZTEC Verifiers: BilateralSwap.sol](#aztec-verifiers-bilateralswapsol)
+- [AZTEC Verifiers: DividendComputation.sol](#aztec-verifiers-dividendcomputationsol)
+- [AZTEC Verifiers: PublicRange.sol](#aztec-verifiers-publicrangesol)
+- [AZTEC Verifiers: PrivateRange.sol](#aztec-verifiers-privaterangesol)
+- [AZTEC Verifiers: Mint.sol](#aztec-verifiers-mintsol)
+- [AZTEC Verifiers: Burn.sol](#aztec-verifiers-burnsol)
+- [ERC1724Mintable.sol](#erc1724mintablesol)
+- [ERC1724Burnable.sol](#erc1724burnablesol)
+- [Specification of Utility libraries](#specification-of-utility-libraries)
+  - [NoteUtils.sol](#noteutilssol)
+    - [`NoteUtils.getLength(bytes memory proofOutputsOrNotes) internal pure returns (uint256 length)`](#noteutilsgetlengthbytes-memory-proofoutputsornotes-internal-pure-returns-uint256-length)
+    - [`NoteUtils.get(bytes memory proofOutputsOrNotes, uint256 i) internal pure returns (bytes memory out)`](#noteutilsgetbytes-memory-proofoutputsornotes-uint256-i-internal-pure-returns-bytes-memory-out)
+    - [`NoteUtils.extractProofOutput(bytes memory proofOutput) internal pure returns (bytes memory inputNotes, bytes memory outputNotes, address publicOwner, int256 publicValue)`](#noteutilsextractproofoutputbytes-memory-proofoutput-internal-pure-returns-bytes-memory-inputnotes-bytes-memory-outputnotes-address-publicowner-int256-publicvalue)
+    - [`NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metadata)`](#noteutilsextractnotebytes-memory-note-internal-pure-returns-address-owner-bytes32-notehash-bytes-memory-metadata)
+    - [`NoteUtils.getNoteType(bytes memory note) internal pure returns (uint256 noteType)`](#noteutilsgetnotetypebytes-memory-note-internal-pure-returns-uint256-notetype)
+- [Appendix](#appendix)
+  - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
+  - [B - Interest streaming via AZTEC notes](#b---interest-streaming-via-aztec-notes)
+- [Glossary](#glossary)
 
 # Architecture  
 
@@ -170,24 +201,24 @@ The `uint8 category` variable represents an enum with the four following values:
 
 The `ACE` contract has separate logic to handle `BALANCED`, `MINT` and `BURN` proofs, as the latter two expressly violate the balancing relationship used to prevent double spending. The `MINT` and `BURN` proofs are designed for fully private AZTEC assets, ones with no ERC20 token equivalent, where AZTEC notes are the primary expression of value. Additional restrictions are placed on their use because of this. 
 
-For more information regarding minting and burning, see (REF HERE).  
+For more information regarding minting and burning, see the [mint](#minting-aztec-notes) and [burn](#burning-aztec-notes) section.
 
 The `UTILITY` proofs are designed for assets that require additional validation logic before a transaction can be performed. For example, an asset might require a trader to prove that they own less than 10% of the total supply of the asset before a trade is processed. This is supported by our `dividend` utility proof.  
 
-For a complete specification of our proofs, see (BLAH)  
+This specification contains [descriptions](#aztec-verifiers-joinsplitsol) for every currently supported proof id. Formal descriptions of the zero-knowledge proofs utilized by the verifiers can be found in the [AZTEC protocol paper](http://www.github.com/AZTECProtocol/AZTEC).
 
 When combined together, `uint8 epoch, uint8 category, uint8 id` create 65025 unique proof identifies for each category. Given the complexity of zero-knowledge cryptographic protocols and the validation that must be performed before integration into `ACE`, it is infeasible for there to ever be demand for more than `65025` types of zero-knowledge proof inside `ACE`.
 
 ## Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs
 
-There is a great deal of variation between the zero-knowledge proofs that AZTEC utilizes. Because of this, and the desire to create a simple interface to validate proofs, the interface for proof *inputs* is kept generic. (REF HERE).  
+There is substantial variation between the zero-knowledge proofs that AZTEC utilizes. Because of this, and the desire to create a simple interface to validate proofs, the interface for proof *inputs* is generic. An AZTEC proof accepts three parameters: `bytes proofData, address sender, uint256[6] commonReferenceString`. The `commonReferenceString` is provided by ACE. The `proofData` variable contains the zero-knowledge proof in question, the `address sender` field is utilized to [eliminate front-running](#a-preventing-collisions-and-front-running). The ABI-encoding of `bytes proofData` is specific to a given validator smart contract.
 
-However, the **output** of a zero-knowledge proof is a list of instructions to be performed. It is important that these `proofOutput` variables conform to a common standard so that existing confidential assets can benefit from the addition of future proofs.  
+The **output** of a zero-knowledge proof is a list of instructions to be performed. It is important that these `proofOutput` variables conform to a common standard so that existing confidential assets can benefit from the addition of future proofs.  
 
 An instruction must contain the following:  
 
-* List the notes to be destroyed, the 'input notes'  
-* List the notes to be created, the 'output notes'  
+* A list of the notes to be destroyed, the 'input notes'  
+* A list of the notes to be created, the 'output notes'  
 * If public tokens are being transferred, how many tokens are involved, who is the beneficiary and what is the direction of the transfer? (into ACE or out of ACE?)  
 
 In addition to this, ACE must support one zero-knowledge proof producing *multiple* instructions (e.g. the `bilateral-swap` proof provides transfer instructions for two distinct assets).  
@@ -196,13 +227,15 @@ Proofs in the `UTILITY` category also conform to this specification, although in
 
 To summarise, the output of any AZTEC validator smart contract is a `bytes proofOutputs` variable, that encodes a dynamic array of `bytes proofOutput` objects. The ABI encoding is as follows:  
 
+## ABI encoding for `bytes proofOutputs`
+
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
 | 0x00 | 0x20 | length | uint256 | the number of `proofOutput` objects |  
 | 0x20 | (0x20 * length) | offsets | uint256[length] | array of 0x20-sized variables that contain the relative offset to each respective `proofOutput` object |  
 | 0x20 + (0x20 * length) + (\sum_{j=0}^{i-1}L[j]) | L[i] | proofOutput[i] | bytes | the `bytes proofOutput` object |  
 
-## ABI encoding for `bytes proofOutput`  
+## ABI encoding for `bytes proofOutput = proofOutputs[i]`  
 
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
@@ -348,7 +381,7 @@ If `proofOutput.publicValue < 0`, the registry will call `erc20.transferFrom(pro
 
 16. Following the successful completion of the confidential transfer (from both `zkERC20 A` and `zkERC20 B`), control is returned to `caller`. It is assumed that `zk-dApp` will emit relevant transfer events, according to the ERC-1724 confidential token standard.
 
-### The rationale behind multilateral confidential transactions  
+## The rationale behind multilateral confidential transactions  
 
 The above instruction demonstrates a practical confidential cross-asset settlement mechanism. Without `ACE`, a confidential digital asset could only process a transfer instruction after validating the instruction conforms to its own internal confidential transaction semantics, a process that would require validating a zero-knowledge proof.  
 
@@ -371,11 +404,39 @@ If the proof is not valid, an error will be thrown. If the proof is valid, a `by
 
 # Creating a note registry  
 
-An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _mintable, bool _burnable, bool _convertable)`.  
+An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _convertable)`.  
 
-The `_mintable`, `_burnable` and `_convertable` flags define whether the note registry owner can directly mint/burn AZTEC notes, as well as whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_convertable` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
+The `_canAdjustSupply` flag defines whethe the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_convertable` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_convertable` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
 
-For a given note registry, only the owner can call `ACE.updateNoteRegistry`. Traditionally this is imagined to be a `zkAsset` smart contract. This allows the `zkAsset` contract to have absolute control over what types of proof can be used to update the note registry, as well as the conditions under which updates can occur (if extra validation logic is required, for example).  
+For a given note registry, only the owner can call `ACE.updateNoteRegistry`, `ACE.mint` or `ACE.burn`. Traditionally this is imagined to be a `zkAsset` smart contract. This allows the `zkAsset` contract to have absolute control over what types of proof can be used to update the note registry, as well as the conditions under which updates can occur (if extra validation logic is required, for example).  
+
+## Note Registry Variables  
+
+### `bytes32 confidentialTotalMinted`  
+
+This variable is the keccak256 hash of an AZTEC UXTO note that defines the total amount of value that a note registry has directly minted.  
+
+When a note registry is created, this note is set to be an AZTEC UXTO note that has a value of `0` and a viewing key of `1`. 
+
+### `bytes32 confidentialTotalBurned`  
+
+This variable is the kecckak256 hash of an AZTEC UXTO note that defines the total amount of value that a note registry has directly burned.
+
+When a note registry is created, this note is set to be an AZTEC UXTO note that has a value of `0` and a viewing key of `1`. 
+
+### `uint256 scalingFactor`  
+
+If this registry permits conversions from AZTEC notes into tokens, `scalingFactor` defines the number of tokens that an AZTEC note value of `1` maps to.  
+
+This is required because the maximum value of an AZTEC note is approximately `2^26` (it is dependent on ACE's common reference string) - there is an associated loss of precision when converting a `256` bit variable into a `26` bit variable.
+
+### `uint256 totalSupply`  
+
+This variable represents the total amount of tokens that currently reside within `ACE` as a result of tokens being converted into AZTEC notes, for a given note registry.
+
+### `ERC20 linkedToken`  
+
+This is the address of the registry's linked ERC20 token. Only one token can be linked to an address.
 
 # Processing a transfer instruction  
 
@@ -406,7 +467,7 @@ For `mintable` assets that are also `mixed`, there are additional steps that a d
 
 Under certain circumstances, a digital asset owner may wish to directly mint AZTEC notes. One example is a confidential digital loan, where the loan originators create the initial loan register directly in the form of AZTEC notes.  
 
-At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canMint` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, bool _canMint, bool _canBurn, bool _canConvert)`.  
+At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canAdjustSupplt` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
 
 A 'mintable' note registry has access to the `ACE.mint(uint24 _proofId, bytes _proofData)` function. This function will validate the proof defined by `_proofId, _proofData` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
 
@@ -414,10 +475,10 @@ A `MINTABLE` proof follows a defined standard. The note registry contains a `byt
 
 A `MINTABLE` proof will produce a `proofOutputs` object with two entries.  
 
-* The first entry contains the old `totalMinted` value and the new `totalMinted` value  
+* The first entry contains the old `confidentialTotalMinted` note and the new `confidentialTotalMinted` value  
 * The second entry contains a list of notes that are to be minted  
 
-If the `totalMinted` value does not match the old `totalMinted` value in `proofOutputs`, the transaction will revert.  
+If the `confidentialTotalMinted` value does not match the old `confidentialTotalMinted` value in `proofOutputs`, the transaction will revert.  
 
 If all checks pass, the relevant AZTEC notes will be added to the note registry.  
 
@@ -433,7 +494,9 @@ Burning is enacted in an identical fashion to note minting. The total amount of 
 
 Burn proofs follow a similar pattern - updating the `totalBurned` variable and destroying the specified AZTEC notes.  
 
-It should be stressed that only a note registry owner, who has set the relevant permissions on their note registry, can call `ACE.mint` and `ACE.burn`.
+It should be stressed that only a note registry owner, who has set the relevant permissions on their note registry, can call `ACE.mint` and `ACE.burn`.  
+
+If ERC20 tokens have been converted into AZTEC notes, which are subsequently burned, the resulting tokens will be permanently locked inside `ACE` and will be unretrievable. Care should be taken by a note registry owner that this behaviour is desired when they burn notes.
 
 # Interacting with ACE: zkAsset
 
@@ -476,7 +539,7 @@ For other uses, such as a smart contract or a non-stealth address, a direct tran
 
 The `JoinSplit` contract validates the AZTEC join-split proof, and performs ECDSA signature validation logic for signatures signed by each note owner.  
 
-The ABI of `byes proofData` is the following:  
+The ABI of `bytes proofData` is the following:  
 
 | offset | length | name | type | description |  
 | --- | --- | --- | --- | --- |  
@@ -507,15 +570,125 @@ The amount of public 'value' being used in the join-split proof, `kPublic`, is d
   
 # AZTEC Verifiers: BilateralSwap.sol  
 
+The `BilateralSwap` contract validates a zero-knowledge proof that defines an exchange of notes between two counter-parties, an order *maker* and an order *taker*. 
+
+The proof involves 4 AZTEC UXTO notes, and proves the following:
+
+1. `note[0].value = note[2].value`  
+2. `note[1].value = note[3].value`  
+
+In this context, the notes are interpreted as the following:  
+
+* `note[0]`: order maker bid note  
+* `note[1]`: order maker ask note  
+* `note[2]`: order taker ask note
+* `note[3]`: order taker bid note  
+
+This proof does not perform any authorization logic - it is the responsibility of the asset smart contracts involved in a trade to perform required permissioning checks.  
+
+The ABI of `bytes proofData` is identical to the ABI-encoding of the `JoinSplit.sol` verification smart contract. The `BilateralSwap` contract will throw if `n != 4` or `m != 2`.  
+
+Once a proof has been successfully validated, `bytes proofOutputs` will contain two entries, with the following note assignments:  
+
+* `proofOutputs[0].inputNotes = [note[0]]`
+* `proofOutputs[0].outputNotes = [note[2]]`  
+* `proofOutputs[1].inputNotes = [note[3]]`
+* `proofOutputs[1].outputNotes = [note[1]]`  
+
+i.e. Both the order maker and order taker are destroying their *bid* notes in exchange for creating their *ask* notes.  
+
+Each entry inside `proofOutputs` defines a balancing relationship. If `proofOutputs[0]` and `proofOutputs[1]` are sent to different ZKAsset smart contracts, this proof can be used to define a bilateral swap of AZTEC notes, between two counter-parties and across two asset classes.
+
 # AZTEC Verifiers: DividendComputation.sol  
+
+The `DividendComputation` proof validates that an AZTEC UXTO note is equal to a public percentage of a second AZTEC UXTO note. This proof is belongs to the `UTILITY` category, as in isolation it does not describe a balancing relationship.  
+
+The `DividendComputation` proof involves three AZTEC notes and two scalars `za, zb`. The scalars `za, zb` define a ratio and the proof proves the following:  
+
+* `note[1].value * za = note[2].value * zb + note[3].value`
+
+In this context, `note[3]` is a **residual** note. The residual note is required in order to accommodate rounding errors. Consider the scenario of a user computing an interest rate payment for values `za, zb` that are fixed by a smart contract.
+
+In this context, `zb > za` and `note[1].value` is the **source** note. The **target** note is `note[2]`. The owner of `note[1]` wishes to prove that `note[2].value = note[1].value * (za / zb)`, or as close as they can manage given the confines of integer arithmetic.  
+
+As the value of `note[1]` is unknown to all but the note owner, they have a free choice in choosing values for `note[2]` and `note[3]`. However in order to maximize the value of `note[2]`, it is in the note owner's interest to minimize `note[3].value`.  
+
+It is worth highlighting the fact that the `DividendComputation` proof, like all AZTEC proofs, it is impossible to present a satisfying proof if any notes have negative value.  
+
+When utilizing the `DividendComputation` proof inside a smart contract, care should be taken to determine whether the proof is being utilized to validate a *debit* computation or a *credit* computation, as it important to ensure that the sender of the proof is incentivized to minimize the value of `note[3]` (not to maximize it).
+
+In a *debit* computation, the note owner is proving that an AZTEC note correctly represents a transfer of value *from* the note owner. For example, a loan repayment. In this context, it is in the note owner's interest to *minimize* the value of the **target** note. It is therefore important to set `note[1]` as the **target** note and `note[2]` as the **source** note. Under this formulism, increasing `note[3].value` will also increase the value of the target note. The note owner, therefore, is incentivized to ensure that `note[3].value` is as small as possible. In this situation, malicious behaviour is prevented because of the AZTEC range proof: `note[3].value` cannot be negative.  
+
+In a *credit* computation, the incentives are reversed and it is neccessary to set `note[1]` as the **source** note, and `note[2]` as the **target** note.  
+
+Similarly to `BilateralSwap`, this proof performs no permissioning checks. It is the responsibliity of the smart contract invoking `DividendComputation` to imbue meaning into the notes being used in the proof, and to ensure that the correct permissioning flows have been observed.  
+
+The ABI of `bytes proofData` is the following:
+
+
+| offset | length | name | type | description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
+| 0x20 | 0x20 | za | uint256 | dividend computation scalar |  
+| 0x40 | 0x20 | zb | uint256 | dividend computation scalar |  
+| 0x60 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0xa0 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
+| 0xe0 | 0x20 | noteMetadataOffset | uint256 | relative offset to `bytes[] noteMetadata` |  
+| 0x100 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0x100 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0x100 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
+| 0x100 + L_notes + L_inputOwers + L_outputOwners | L_metadata | noteMetadata | bytes[] | note metadata, used for event broadcasts |  
 
 # AZTEC Verifiers: PublicRange.sol  
 
+TODO: `PublicRange.sol` is still in the implementation phase
+
 # AZTEC Verifiers: PrivateRange.sol  
+
+TODO: `PrivateRange.sol` is still in the implementation phase
 
 # AZTEC Verifiers: Mint.sol  
 
+The `Mint` contract enables AZTEC asset owners to directly mint notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.mint`.
+
+A `Mint` proof has 3 inputs: an AZTEC UXTO note that describes the existing total value that has been minted into this registry, `totalMinted`, an AZTEC UXTO note that describes the new value of `totalMinted`, and a vector of AZTEC UXTO notes that are to be minted.  
+
+It is important to keep track of the total amount of minted value as this may be neccessary for accounting purposes, or an audit. `totalMinted` is represented by an AZTEC note, i.e. only the registry owner must know the value of this note.  
+
+The ABI-encoding of `bytes proofData` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
+
+When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
+
+* `proofOutputs.length = 2`  
+* `proofOutputs[0].inputNotes = [notes[1]]`
+* `proofOutputs[0].outputNotes = [notes[0]]`
+* `proofOutputs[0].publicOwner = address(0)` 
+* `proofOutputs[0].publicValue = 0`
+* `proofOutputs[1].inputNotes = [] ` 
+* `proofOutputs[1].outputNotes = [notes[2], ..., notes[n]]`
+
+i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
+
 # AZTEC Verifiers: Burn.sol  
+
+The `Burn` contract enables AZTEC asset owners to burn notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.burn`.
+
+The `Burn` contract functions in an identical manner to the `Mint` contract. The only difference is that `totalBurned` is tracked instead of `totalMinted`.  
+
+The ABI-encoding of `bytes proofData` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
+
+When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
+
+* `proofOutputs.length = 2`  
+* `proofOutputs[0].inputNotes = [notes[1]]`
+* `proofOutputs[0].outputNotes = [notes[0]]`
+* `proofOutputs[0].publicOwner = address(0)` 
+* `proofOutputs[0].publicValue = 0`
+* `proofOutputs[1].inputNotes = [notes[2], ..., notes[n]]`
+* `proofOutputs[1].outputNotes = [] ` 
+
+i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
+
 
 # ERC1724Mintable.sol  
 
@@ -523,10 +696,34 @@ The amount of public 'value' being used in the join-split proof, `kPublic`, is d
 
 # Specification of Utility libraries  
 
+Due to the complex ABI-encodings of AZTEC proofs, it is neccessary to define utility libraries that abstract away this complexity from a digital asset builder.  
+
+## NoteUtils.sol  
+
+The `NoteUtils` library provides helper methods that enable data to be extracted from `bytes memory proofOutputs`.  
+
+### `NoteUtils.getLength(bytes memory proofOutputsOrNotes) internal pure returns (uint256 length)`  
+
+When provided with an AZTEC ABI-encoded array (any one of `bytes memory proofOutputs, bytes memory inputNotes, bytes memory outputNotes`), this method will return the number of entries.  
+
+### `NoteUtils.get(bytes memory proofOutputsOrNotes, uint256 i) internal pure returns (bytes memory out)`  
+
+This method will return the `i`'th entry of an AZTEC ABI-encoded array. If `i` is an invalid index an error will be thrown.
+
+### `NoteUtils.extractProofOutput(bytes memory proofOutput) internal pure returns (bytes memory inputNotes, bytes memory outputNotes, address publicOwner, int256 publicValue)`  
+
+This method will extract the constituent members of `bytes proofOutput`.
+
+### `NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metadata)`  
+
+This method will extract the constituent members of an AZTEC ABI-encoded note. Such as the notes contained inside `proofOutput.inputNotes` and `proofOutput.outputNotes`.
+
+### `NoteUtils.getNoteType(bytes memory note) internal pure returns (uint256 noteType)`  
+
+Extracting the 'type' of a note is provided as a separate method, as this is a rare requirement and its including inside `NoteUtils.extractNote` would bloat the number of stack variables required by the method.
+
 # Appendix 
 ## A: Preventing collisions and front-running  
-
-TODO: mention that we assume 'honeset verifier' because we decide which validators are added to ACE?
 
 For any AZTEC verification smart contract, the underlying zero-knowledge protocol must have a formal proof describing the protocol's completeness, soundness and honest-verifier zero-knowledge properties.  
 
