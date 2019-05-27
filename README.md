@@ -467,7 +467,7 @@ For `mintable` assets that are also `mixed`, there are additional steps that a d
 
 Under certain circumstances, a digital asset owner may wish to directly mint AZTEC notes. One example is a confidential digital loan, where the loan originators create the initial loan register directly in the form of AZTEC notes.  
 
-At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canAdjustSupplt` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
+At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canAdjustSupply` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
 
 A 'mintable' note registry has access to the `ACE.mint(uint24 _proofId, bytes _proofData)` function. This function will validate the proof defined by `_proofId, _proofData` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
 
