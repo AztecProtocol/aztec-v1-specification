@@ -1,4 +1,4 @@
-# AZTEC Protocol 1.0.0 specification  
+# AZTEC Protocol 1.0.0 specification, previous spec
 
 ## Table of contents  
 
