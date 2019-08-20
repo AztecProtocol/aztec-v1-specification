@@ -21,9 +21,9 @@
 - [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
     - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
 - [Contract Interactions](#contract-interactions)
-  - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-bilateral-swaps)
+  - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps)
     - [(1-5) : Validating the proof](#1-5--validating-the-proof)
-    - [(6-8): Issuing a transfer instruction to `zkERC20 A`](#6-8-issuing-a-transfer-instruction-to-zkerc20-a)
+    - [(6-8): Issuing a transfer instruction to `zkAsset A`](#6-8-issuing-a-transfer-instruction-to-zkerc20-a)
     - [(9-16): Processing the transfer instruction](#9-16-processing-the-transfer-instruction)
   - [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
 - [Validating an AZTEC proof](#validating-an-aztec-proof)
@@ -98,7 +98,7 @@ Because using structs in external functions is still an experimental feature, th
 
 One key feature of ACE is the ability to support multiple note 'types'. Different note types enable the engine to support zero-knowledge proofs that use different techniques to represent encrypted value.  
 
-For example, the basic AZTEC note is the most efficient way to represent encrypted value, however it's UXTO-like form may be unsuitable for some applications. On the other hand, ElGamal 'treasury' notes can be used to emulate a more traditional account-balance model, where the balance is encrypted.  
+For example, the currently implemented basic AZTEC note is the most efficient way to represent encrypted value, however it's UXTO-like form may be unsuitable for some applications. On the other hand, once implemented, ElGamal 'treasury' notes could be used to emulate a more traditional account-balance model, where the balance is encrypted.
 
 All notes use the same basic structure, but with different `publicKey` values. Every AZTEC zero-knowlege proof explicitly defines the type of note that it utilizes. Under no circumstances should it be possible to use a note of the wrong 'type' in a zero-knowledge proof.
 
@@ -108,24 +108,41 @@ The ABI encoding of a note is as follows:
 | ------ | ------ | -------- | --- | --- |
 | 0x00   | 0x20   | id | uint256 | The 'type' identifier of the note |
 | 0x20   | 0x20   | owner | address | Ethereum address of note owner |
-| 0x40   | L_pub   | publicKey | bytes | The public key of the note, that is used to encrypt value |  
-| 0x40 + L_pub | L_met | noteData | bytes | Note-specific data |
+| 0x40   | 0x60   | noteHash | bytes32 | Hash of the note's elliptic curve points: gamma and sigma |
+| 0x60   | L_pub   | publicKey | bytes | The public key of the note, that is used to encrypt value |  
+| 0x60 + L_pub | L_met | metaData | bytes | Note-specific metaData |
 
 `metadata` is not used by the logic of AZTEC zero-knowlege proof validators, but is instead used when broadcasting events involving a note. The metadata of a note can be used by the note's owner to recover the note's viewing key.
 
 ### Type 1: UXTO notes  
 
-This is the default note type and used by the majority of our protocols. The ABI formatting of this note's `publicKey` is as follows:
+This is the default note type and currently used by the protocol. The ABI formatting of this note's `publicKey` is as follows:
 
 | Offset | Length | Name | Type | Description|
 | ------ | ------ | -------- | --- | --- |
 | 0x00   | 0x20   | gamma | bytes32 | (compressed) bn128 group element |
 | 0x20   | 0x20   | sigma | bytes32 | (compressed) bn128 group element |
-| 0x40   | -      | metadata | bytes | custom metadata associated with note |  
+| 0x40   | 0x21   | ephemeral key | bytes33 | ephemeral public key used to recover viewing key |  
+
+`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains application specific information and is broadcast by events involving a note. 
+
+In the protocol, the metaData is used for two purposes. Firstly, it can be used by the note owner to decrypt a note. Secondly, it can be used by a note owner to grant note viewing key access to a third party.
+
+#### Use 1: Recovering viewing key
+Every note viewing key should be distinct, however users should not have to manage a multitude of unique viewing keys. In addition, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover. This process should be non-interactive.
+
+The solution is to use a shared secret protocol, between an 'ephemeral' public/private key pair and the public key of the note owner. An extension of this protocol can be used to derive 'stealth' addresses, if the recipient has a stealth wallet. Currently, our V1 APIs use the basic shared secret protocol for ease of use (traditional Ethereum wallets can own these kinds of AZTEC notes). At the smart contract level, the protocol is forward-compatible with stealth addresses.
+
+Therefore, the first use of the metadata field is to store the data that a user requires to recover their note viewing key - the 'ephemeral' public key. 
+
+#### Use 2: Granting view key access
+Secondly, the metaData can be used to grant note viewing key access to third parties. By calling note.setMetadata() an abritrary string can be passed and appended to the ephemeral key already exisitng in the metaData.  The note schema does not enforce any structure to this string, however the protocol passes a structured string that is used to directly grant viewing key access to third parties. The schema for the metaData structure used is:
+
+// TODO: Joe/Leila to input the most up to date metaData schema + explain how it is to be used
 
 ### Type 2: El-Gamal treasury notes  
 
-Treasury notes enable a single 'account' to have their balance represented by a single treasury note (instead of a multitude of AZTEC UXTO-type notes). They are slightly more gas-expensive to use than AZTEC notes and are only used in a small subset of AZTEC zero-kowledge proofs.
+Treasury notes would enable a single 'account' to have their balance represented by a single treasury note (instead of a multitude of AZTEC UXTO-type notes). They are slightly more gas-expensive to use than AZTEC notes and are only used in a small subset of AZTEC zero-kowledge proofs.
 
 | Offset | Length | Name | Type | Description|
 | ------ | ------ | -------- | --- | --- |
@@ -134,13 +151,6 @@ Treasury notes enable a single 'account' to have their balance represented by a 
 | 0x40 | 0x20 | noteCommitment | bytes32 | (compressed) bn128 group element, the core El-Gamal commitment |
 | 0x60   | -      | metadata | bytes | custom metadata associated with note |  
 
-### Note metadata, recovering viewing keys and shared secrets  
-
-The `metadata` field contains information that can be used by a note owner to decrypt a note. Every note viewing key should be distinct, however users should not have to manage a multitude of unique viewing keys. In addition, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover. This process should be non-interactive.
-
-The solution is to use a shared secret protocol, between an 'ephemeral' public/private key pair and the public key of the note owner. An extension of this protocol can be used to derive 'stealth' addresses, if the recipient has a stealth wallet. Currently, our V1 APIs use the basic shared secret protocol for ease of use (traditional Ethereum wallets can own these kinds of AZTEC notes). At the smart contract level, the protocol is forward-compatible with stealth addresses.  
-  
-The `metadata` field stores the data that a user requires to recover their note viewing key - the 'ephemeral' public key. Additionally, if an ECIES encrypted message is attatched to the note, it will be located in the `metadata` field.  
 
 # The Note Registry  
 
@@ -150,7 +160,7 @@ The note registry contains the storage variables that define the set of valid AZ
 
 The note registry enacts the instructions generated by valid AZTEC proofs - creating and destroying the required notes, as well as transferring any required tokens.  
 
-The note registry's `owner` is the only entity that can issue instructions to update the registry. `NoteRegistry` will only enact instructions that have been generated by a valid AZTEC proofs as it is of critical importance that notes are not created/destroyed unless a **balancing relationship** has been satisfied.  
+The note registry's `owner` is the only entity that can issue instructions to update the registry. `NoteRegistry` will only enact instructions that have been generated by a valid AZTEC proof as it is of critical importance that notes are not created/destroyed unless a **balancing relationship** has been satisfied.  
 
 Because every confidential asset that uses an ACE note registry can have 100% confidence in the integrity of the state of every *other* ACE note registry, it makes it possible to express AZTEC notes from one registry as a percentage of notes in a second registry, which in turn is useful for dividend-paying confidential assets and confidential assets that utilize income streaming.
 
@@ -170,11 +180,11 @@ The ACE proof identification and versioning sytem has the following characterist
 * Opt-out functionality. If an asset controller only wants to listen to a subset of proofs (e.g. whether to listen to newly added proofs is on their terms. This is important for assets that have an internal review process for zero-knowledge proofs)  
 * Qualified immutability. The validator code for a given proof id should never change. AZTEC must be able to de-activate a proof if it is later found to contain a bug, but any upgrades or improvement to a proof are expressed by instantiating a new validator contract, with a new proof id.  
 
-A proof is uniquely defined by its `uint24 proofId`. ACE stores a mapping that maps each `proofId` to the address of a smart contract that validates the zero-knowledge proof in question.  
+A proof is uniquely defined by an identifier`uint24 _proof`. ACE stores a mapping that maps each `_proof` to the address of a smart contract that validates the zero-knowledge proof in question.  
 
-Instead of having a 'universal' validation smart contract, it was chosen to make these contracts discrete for maximum flexibility. Validator contracts should not be upgradable, to gaurantee that users of AZTEC proofs can have confidence that the proofs they are using are not subject to change. Upgrades and changes are implemented by adding new validator contracts and new proofs.  
+Instead of having a 'universal' validation smart contract, it was chosen to make these contracts discrete for maximum flexibility. Validator contracts should not be upgradable, to gurantee that users of AZTEC proofs can have confidence that the proofs they are using are not subject to change. Upgrades and changes are implemented by adding new validator contracts and new proofs.  
 
-The `uint24 proofId` variable contains the concatenation of three `uint8` variables (the rationale for this compression is to both reduce `calldata` size and to simplify the interface. Our javascript APIs automatically compose proofs with the correct `proofId`, minimizing the amount of variables that a builder on AZTEC has to keep track of.
+The `uint24 _proof` variable contains the concatenation of three `uint8` variables (the rationale for this compression is to both reduce `calldata` size and to simplify the interface. Our javascript APIs automatically compose proofs with the correct `_proof`, minimizing the amount of variables that a builder on AZTEC has to keep track of.
 
 The formatting as follows (from most significant byte to least significant byte)
 
@@ -211,7 +221,7 @@ When combined together, `uint8 epoch, uint8 category, uint8 id` create 65025 uni
 
 ## Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs
 
-There is substantial variation between the zero-knowledge proofs that AZTEC utilizes. Because of this, and the desire to create a simple interface to validate proofs, the interface for proof *inputs* is generic. An AZTEC proof accepts three parameters: `bytes proofData, address sender, uint256[6] commonReferenceString`. The `commonReferenceString` is provided by ACE. The `proofData` variable contains the zero-knowledge proof in question, the `address sender` field is utilized to [eliminate front-running](#a-preventing-collisions-and-front-running). The ABI-encoding of `bytes proofData` is specific to a given validator smart contract.
+There is substantial variation between the zero-knowledge proofs that AZTEC utilizes. Because of this, and the desire to create a simple interface to validate proofs, the interface for proof *inputs* is generic. An AZTEC proof accepts three parameters: `bytes data, address sender, uint256[6] commonReferenceString`. The `commonReferenceString` is provided by ACE. The `data` variable contains the zero-knowledge proof data in question, the `address sender` field is utilized to [eliminate front-running](#a-preventing-collisions-and-front-running). The ABI-encoding of `bytes data` is specific to a given validator smart contract.
 
 The **output** of a zero-knowledge proof is a list of instructions to be performed. It is important that these `proofOutput` variables conform to a common standard so that existing confidential assets can benefit from the addition of future proofs.  
 
@@ -221,7 +231,7 @@ An instruction must contain the following:
 * A list of the notes to be created, the 'output notes'  
 * If public tokens are being transferred, how many tokens are involved, who is the beneficiary and what is the direction of the transfer? (into ACE or out of ACE?)  
 
-In addition to this, ACE must support one zero-knowledge proof producing *multiple* instructions (e.g. the `bilateral-swap` proof provides transfer instructions for two distinct assets).  
+In addition to this, ACE must support one zero-knowledge proof producing *multiple* instructions (e.g. the `Swap` proof provides transfer instructions for two distinct assets).  
 
 Proofs in the `UTILITY` category also conform to this specification, although in this context 'input' and 'output' notes are not created or destroyed.  
 
@@ -264,12 +274,12 @@ Once a `BALANCED`, `MINT` or `BURN` proof has been validated, ACE records this f
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
 | 0x00 | 0x20 | proofHash | bytes32 | a keccak256 hash of `bytes proofOutput` |  
-| 0x20 | 0x20 | proofId | uint24 | the proofId of the proof |  
+| 0x20 | 0x20 | _proof | uint24 | the _proof of the proof |  
 | 0x40 | 0x20 | msg.sender | address | the address of the entity calling `ACE` |  
 
 This creates a unique key, that is mapped to `true` if the proof is valid (invalid proofs are not stored).  
 
-Contracts can query `ACE` with a `bytes proofOutput`, combined with a `uint24 proofId` and the `address` of the entity that issued the instruction. `ACE` can validate whether this instruction came from a valid proof.  
+Contracts can query `ACE` with a `bytes proofOutput`, combined with a `uint24 _proof` and the `address` of the entity that issued the instruction. `ACE` can validate whether this instruction came from a valid proof.  
 
 This mechanism enables smart contracts to issue transfer instructions on behalf of both users and other smart contracts, enabling zero-knowledge confidential dApps. 
 
@@ -292,7 +302,7 @@ Restricting note registry updates to the creator of a given note registry provid
 
 ### Separating proof validation and note registry interactions  
 
-Because of these dual responsibilities, it might seem intuitive to roll proof validation and note registry updates into a single function. However this would undermine one of the key strengths of the AZTEC protocol - that third party dApps can validate zero-knowledge proofs and send the resulting transfer instructions to AZTEC-compatible confidential assets. (LINK HERE) demonstrates this type of interaction and, consequently, the importance of separating proof validation from note registry updates.
+Because of these dual responsibilities, it might seem intuitive to roll proof validation and note registry updates into a single function. However this would undermine one of the key strengths of the AZTEC protocol - that third party dApps can validate zero-knowledge proofs and send the resulting transfer instructions to AZTEC-compatible confidential assets. [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps] demonstrates this type of interaction and, consequently, the importance of separating proof validation from note registry updates.
 
 # Contract Interactions  
 
@@ -300,8 +310,8 @@ Because of these dual responsibilities, it might seem intuitive to roll proof va
 
 Transaction #1  
 
-1. `ACE.validateProof(uint24 proofId, address sender, bytes proofData)`  
-2. `Validator.validate(bytes proofData, address sender, uint[6] commonReferenceString)` (revert on failure, return `bytes proofOutputs`)  
+1. `ACE.validateProof(uint24 _proof, address sender, bytes data)`  
+2. `Validator.validate(bytes data, address sender, uint[6] commonReferenceString)` (revert on failure, return `bytes proofOutputs`)  
 3. return `bytes proofOutputs` to `ACE`, revert on failure  
 4. return `bytes proofOutputs` to caller, log valid proof if category != `UTILITY`, revert on failure  
 
@@ -309,8 +319,8 @@ Transaction #1
 
 Transaction #1  
 
-1. `ACE.updateNoteRegistry(uint24 proofId, bytes proofOutput, address sender)`  
-2. `NoteRegistry.validateProofByHash(uint24 proofId, bytes proofOutput, address sender)` (revert on failure)
+1. `ACE.updateNoteRegistry(uint24 _proof, bytes proofOutput, address sender)`  
+2. `NoteRegistry.validateProofByHash(uint24 _proof, bytes proofOutput, address sender)` (revert on failure)
 3a. (if `proofOutput.publicValue > 0`) `ERC20.transfer(proofOutput.publicOwner, uint256(proofOutput.publicValue))` (revert on failure)
 3b. (if `proofOutput.publicValue < 0`) `ERC20.transferFrom(proofOutput.publicOwner, this, uint256(-proofOutput.publicValue))` (revert on failure)  
 4. NoteRegistry: (revert on failure)  
@@ -318,53 +328,53 @@ Transaction #1
 
 ## Zero-knowledge dApp contract interaction, an example flow with bilateral swaps  
 
-The following image depicts the flow of a zero-knowledge dApp that utilizes the `bilateral-swap` proof to issue transfer instructions to two zkERC20 confidential digital assets. This example aims to illustrate the kind of confidential cross-asset interactions that are possible with AZTEC. Later iterations of the protocol will include proofs that enable similar multilateral flows.  
+The following image depicts the flow of a zero-knowledge dApp that utilizes the `Swap` proof to issue transfer instructions to two zkAsset confidential digital assets. This example aims to illustrate the kind of confidential cross-asset interactions that are possible with AZTEC. Later iterations of the protocol will include proofs that enable similar multilateral flows.  
 
-The dApp-to-zkERC20 interactions are identical for both `zkERC20 A` and `zkERC20 B`. To simplify the description we only describe the interactions for one of these two assets.
+The dApp-to-zkAsset interactions are identical for both `zkAsset A` and `zkAsset B`. To simplify the description we only describe the interactions for one of these two assets.
 
 ![zk-dapp-flow](https://github.com/CreditMint/wiki/blob/master/zkDappFlow2.png?raw=true)  
 
 ### (1-5) : Validating the proof  
 
-1. `zk dApp` receives a `bilateral-swap` zero-knowledge proof from `caller` (with a defined `uint24 proofId` and `bytes proofData`.  
+1. `zk dApp` receives a `Swap` zero-knowledge proof from `caller` (with a defined `uint24 _proof` and `bytes data`.  
 
-2. The `zk-dApp` contract queries `ACE` to validate the received proof,  via `ACE.validateProof(proofId, msg.sender, proofData)`. If `proofId` is not supported by `zk-dApp` the transaction will `revert`.
+2. The `zk-dApp` contract queries `ACE` to validate the received proof,  via `ACE.validateProof(_proof, msg.sender, data)`. If `_proof` is not supported by `zk-dApp` the transaction will `revert`.
 
-3. On receipt of a valid proof, `ACE` will identify the `validator` smart contract associated with `proofId` (in this case, `BilateralSwap.sol`). `ACE` will then call `validator.validateProof(proofData, sender, commonReferenceString)`. If the `proofId` provided does not map to a valid `validator` smart contract, the transaction will `revert`.
+3. On receipt of a valid proof, `ACE` will identify the `validator` smart contract associated with `_proof` (in this case, `BilateralSwap.sol`). `ACE` will then call `validator.validateProof(data, sender, commonReferenceString)`. If the `_proof` provided does not map to a valid `validator` smart contract, the transaction will `revert`.
 
 4. If the proof is valid, the `validator` contract will return a `bytes proofOutputs` object to `ACE`. If the proof is invalid, the transaction will `revert`.  
 
-5. On receipt of a valid `bytes proofOutputs`, `ACE` will examine `proofId` to determine if the proof is of the `BALANCED` category. If this is the case, `ACE` will iterate over each `bytes proofOutput` in `bytes proofOutputs`. For each `proofOutput`, the `bytes32 proofHash` is computed. A unique proof identifier, `bytes32 proofIdentifier = keccak256(abi.encode(proofId, msg.sender, proofHash))`, is then computed. This is used as a key to log the existence of a valid proof - `validProofs[proofIdentifier] = true`.  
+5. On receipt of a valid `bytes proofOutputs`, `ACE` will examine `_proof` to determine if the proof is of the `BALANCED` category. If this is the case, `ACE` will iterate over each `bytes proofOutput` in `bytes proofOutputs`. For each `proofOutput`, the `bytes32 proofHash` is computed. A unique proof identifier, `bytes32 _proofentifier = keccak256(abi.encode(_proof, msg.sender, proofHash))`, is then computed. This is used as a key to log the existence of a valid proof - `validProofs[_proofentifier] = true`.  
 
 Once this has been completed, `ACE` will return `bytes proofOutputs` to `zk-dApp`.
 
-### (6-8): Issuing a transfer instruction to `zkERC20 A`  
+### (6-8): Issuing a transfer instruction to `zkAsset A`  
 
-At this stage, `zk-dApp` is in posession of transfer instructions that result from a valid `bilateral-swap` proof, in the form of a `bytes proofOutputs` object received from `ACE`.  
+At this stage, `zk-dApp` is in posession of transfer instructions that result from a valid `Swap` proof, in the form of a `bytes proofOutputs` object received from `ACE`.  
 
-For the `bilateral-swap` proof, there will be `2` entries inside `proofOutputs`, with each entry mapping to one the two confidential assets - `zkERC20 A` and `zkERC20 B`.  
+For the `Swap` proof, there will be `2` entries inside `proofOutputs`, with each entry mapping to one the two confidential assets - `zkAsset A` and `zkAsset B`.  
 
-6. The `zk-dApp` contract issues a transfer instruction to `zkERC20 A` via `zkERC20.confidentialTransferFrom(proofId, proofOutput)`.  
+6. The `zk-dApp` contract issues a transfer instruction to `zkAsset A` via `zkAsset.confidentialTransferFrom(_proof, proofOutput)`.  
 
-7. On receipt of `uint24 proofId, bytes proofOutput`. The `zkERC20 A` contract validates that `proofId` is on the contract's proof whitlelist. If this is not the case, the transaction will `revert`.  
+7. On receipt of `uint24 _proof, bytes proofOutput`. The `zkAsset A` contract validates that `_proof` is on the contract's proof whitlelist. If this is not the case, the transaction will `revert`.  
 
-`zkERC20 A` computes `bytes32 proofHash` and query `ACE` as to the legitimacy of the received instructions, via `ACE.validateProofByHash(proofId, proofHash, msg.sender)`.  
+`zkAsset A` computes `bytes32 proofHash` and query `ACE` as to the legitimacy of the received instructions, via `ACE.validateProofByHash(_proof, proofHash, msg.sender)`.  
 
 8. `ACE` queries its `validProofs` mapping to determine if a proof that produced `bytes proofOutput` was previously validated and return a boolean indicating whether this is the case.  
 
-If no matching proof was previously validated by `ACE`, `zkERC20 A` will `revert` the transaction.  
+If no matching proof was previously validated by `ACE`, `zkAsset A` will `revert` the transaction.  
 
 ### (9-16): Processing the transfer instruction  
 
-Having been provided with a valid `proofOutput` that satisfies a balancing relationship, `zkERC20 A` will validate the following:  
+Having been provided with a valid `proofOutput` that satisfies a balancing relationship, `zkAsset A` will validate the following:  
 
 * For every input `note`, is `approved[note.noteHash][msg.sender] == true`?  
 
 If this is not the case, the transaction will `revert`.  
 
-9. If all input notes have been `approved`, `zkERC20 A` will instruct `ACE` to update its note registry according to the instructions in `proofOutput`, via `ACE.updateNoteRegistry(proofId, proofOutput, msg.sender)`.
+9. If all input notes have been `approved`, `zkAsset A` will instruct `ACE` to update its note registry according to the instructions in `proofOutput`, via `ACE.updateNoteRegistry(_proof, proofOutput, msg.sender)`.
 
-10. On receipt of `bytes proofOutput`, `ACE` will also validate that the `proofOutput` instruction came from a valid zero-knowledge proof (and `revert` if this is not the case). Having been satisfied of the proof's correctness, `ACE` will instruct the note registry owned by `msg.sender` (`zkERC20 A`) to process the transfer instruction.  
+10. On receipt of `bytes proofOutput`, `ACE` will also validate that the `proofOutput` instruction came from a valid zero-knowledge proof (and `revert` if this is not the case). Having been satisfied of the proof's correctness, `ACE` will instruct the note registry owned by `msg.sender` (`zkAsset A`) to process the transfer instruction.  
 
 11. `NoteRegistry A` will validate the following is correct:  
 
@@ -377,27 +387,27 @@ If `proofOutput.publicValue < 0`, the registry will call `erc20.transferFrom(pro
 
 12. If the resulting transfer instruction fails, the transaction is `reverted`, otherwise control is returned to `Note Registry A`  
 
-13-15. If the transaction is successful, control is returned to `ACE`, followed by `zkERC20 A` and `zk-dApp`.  
+13-15. If the transaction is successful, control is returned to `ACE`, followed by `zkAsset A` and `zk-dApp`.  
 
-16. Following the successful completion of the confidential transfer (from both `zkERC20 A` and `zkERC20 B`), control is returned to `caller`. It is assumed that `zk-dApp` will emit relevant transfer events, according to the ERC-1724 confidential token standard.
+16. Following the successful completion of the confidential transfer (from both `zkAsset A` and `zkAsset B`), control is returned to `caller`. It is assumed that `zk-dApp` will emit relevant transfer events, according to the ERC-1724 confidential token standard.
 
 ## The rationale behind multilateral confidential transactions  
 
 The above instruction demonstrates a practical confidential cross-asset settlement mechanism. Without `ACE`, a confidential digital asset could only process a transfer instruction after validating the instruction conforms to its own internal confidential transaction semantics, a process that would require validating a zero-knowledge proof.  
 
-This would result in 3 distinct zero-knowledge proofs being validated (one each by `zk-dApp`, `zkERC20 A`, `zkERC20 B`). Because zero-knowledge proof validation is the overwhelming contributor to the cost of confidential transactions, this creates a severe obstacle to practical cross-asset confidential interactions.
+This would result in 3 distinct zero-knowledge proofs being validated (one each by `zk-dApp`, `zkAsset A`, `zkAsset B`). Because zero-knowledge proof validation is the overwhelming contributor to the cost of confidential transactions, this creates a severe obstacle to practical cross-asset confidential interactions.
 
-However, by subscribing to `ACE` as the arbiter of valid proofs, these three smart contracts can work in concert to process a multilateral confidential transfer having validated only a single zero-knowledge proof (this is because the `bilateral-swap` proof produces transfer instructions that lead to two balancing relationships. Whilst `zkERC20 A` and `zkERC20 B` do not know this (the proof in question could have been added to `ACE` *after* the creation of these contracts), `ACE` does, and can act as the ultimate arbiter of whether a transfer instruction is valid or not.  
+However, by subscribing to `ACE` as the arbiter of valid proofs, these three smart contracts can work in concert to process a multilateral confidential transfer having validated only a single zero-knowledge proof (this is because the `Swap` proof produces transfer instructions that lead to two balancing relationships. Whilst `zkAsset A` and `zkAsset B` do not know this (the proof in question could have been added to `ACE` *after* the creation of these contracts), `ACE` does, and can act as the ultimate arbiter of whether a transfer instruction is valid or not.  
 
 Whilst it may apear that this situation requires AZTEC-compatible assets to 'trust' that ACE will correctly validate proofs, it should be emphasized that `ACE` is a completely deterministic smart-contract whose code is fully available to be examined. No real-world trust (e.g. oracles or staking mechanisms) is required. The source of the guarantees around the correctness of AZTEC's confidential transactions come from its zero-knowledge proofs, all of which have the properties of completeness, soundness and honest-verifier zero-knowledge.
 
 # Validating an AZTEC proof  
 
-AZTEC zero-knowledge proofs can be validated via `ACE.validateProof(uint24 proofId, address sender, bytes calldata proofData) external returns (bytes memory proofOutputs)`.  
+AZTEC zero-knowledge proofs can be validated via `ACE.validateProof(uint24 _proof, address sender, bytes calldata data) external returns (bytes memory proofOutputs)`.  
 
-The `bytes proofData` uses a custom ABI encoding that is unique to each proof that AZTEC supports. It is intended that, if a contract requires data from a proof, that data is extracted from `bytes proofOutputs` and not the input data.  
+The `bytes data` uses a custom ABI encoding that is unique to each proof that AZTEC supports. It is intended that, if a contract requires data from a proof, that data is extracted from `bytes proofOutputs` and not the input data.  
 
-If the `uint8 category` inside `proofId` is not of type `UTILITY`, `ACE` will record the validity of the proof as a state variable inside `mapping(bytes32 => bool) validatedProofs`.  
+If the `uint8 category` inside `_proof` is not of type `UTILITY`, `ACE` will record the validity of the proof as a state variable inside `mapping(bytes32 => bool) validatedProofs`.  
 
 If the proof is not valid, an error will be thrown. If the proof is valid, a `bytes proofOutputs` variable will be returned, describing the instructions to be performed to enact the proof. For `BALANCED` proofs, each individual `bytes proofOutput` variable inside `bytes proofOutputs` will satisfy a balancing relationship.  
 
@@ -440,11 +450,11 @@ This is the address of the registry's linked ERC20 token. Only one token can be 
 
 # Processing a transfer instruction  
 
-Once a proof instruction has been received (either through `ACE` or via a third party that validated a proof through `ACE`, for example a confidential decentralized exchange dApp), it can be processed by calling `ACE.updateNoteRegistry(uint24 proofId, bytes proofOutput, address sender)`.  
+Once a proof instruction has been received (either through `ACE` or via a third party that validated a proof through `ACE`, for example a confidential decentralized exchange dApp), it can be processed by calling `ACE.updateNoteRegistry(uint24 _proof, bytes proofOutput, address sender)`.  
 
 * If `msg.sender` has not registered a note registry inside `ACE`, the transaction will throw  
 * If the the proof instruction was **not** sourced from a proof that `ACE` validated, the transaction will throw  
-* If `validatedProofs[keccak256(abi.encode(proofId, sender, keccak256(proofOutput)))] == false`, the transaction will throw  
+* If `validatedProofs[keccak256(abi.encode(_proof, sender, keccak256(proofOutput)))] == false`, the transaction will throw  
 
 If the above criteria are satisfied, the instruction is passed to `NoteRegistry`, where the following checks are validated against:  
 
@@ -469,7 +479,7 @@ Under certain circumstances, a digital asset owner may wish to directly mint AZT
 
 At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canAdjustSupply` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
 
-A 'mintable' note registry has access to the `ACE.mint(uint24 _proofId, bytes _proofData)` function. This function will validate the proof defined by `_proofId, _proofData` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
+A 'mintable' note registry has access to the `ACE.mint(uint24 __proof, bytes _data)` function. This function will validate the proof defined by `__proof, _data` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
 
 A `MINTABLE` proof follows a defined standard. The note registry contains a `bytes32 totalMinted` variable that is the hash of an AZTEC UXTO note that contains the total value of AZTEC notes that been minted by the registry owner.  
 
@@ -508,13 +518,13 @@ A `zkAsset` contract must instantiate a note registry inside `ACE` via `ACE.crea
 
 ## Issuing a confidential transaction: confidentialTransfer
 
-The primary method of unilateral value transfer occurs via `zkAsset.confidentialTransfer(bytes proofData)`. In this method, the AZTEC proof defined by the contract's `DEFAULT_PROOF_ID` is used to enact a value transfer. The beneficiaries of the transaction are defined entirely by the contents of `bytes proofData`.  
+The primary method of unilateral value transfer occurs via `zkAsset.confidentialTransfer(bytes data)`. In this method, the AZTEC proof defined by the contract's `DEFAULT_PROOF_ID` is used to enact a value transfer. The beneficiaries of the transaction are defined entirely by the contents of `bytes data`.  
 
-Both `ACE.validateProof(proofData)` and `ACE.updateNoteRegistry(proofOutput)` must be called, with `proofOutput` being extracted from `ACE.validateProof`'s return data.  
+Both `ACE.validateProof(data)` and `ACE.updateNoteRegistry(proofOutput)` must be called, with `proofOutput` being extracted from `ACE.validateProof`'s return data.  
 
 ## Issuing delegated confidential transactions: confidentialTransferFrom  
 
-The `confidentialTransferFrom(uint24 _proofId, bytes proofData)` method is used to perform a delegated transfer. As opposed to `confidentialTransfer`, `confidentialTransferFrom` can use any proof supported by `ACE` (assuming the `zkAsset` contract accepts this type of proof).  
+The `confidentialTransferFrom(uint24 __proof, bytes data)` method is used to perform a delegated transfer. As opposed to `confidentialTransfer`, `confidentialTransferFrom` can use any proof supported by `ACE` (assuming the `zkAsset` contract accepts this type of proof).  
 
 A consequence of this is that the `zkAsset` contract must validate permissioning. The default `joinSplit` proof validates that ECDSA signatures have been signed over every input note. However this is not suitable for a delegated transfer, where note 'owners' may be smart contracts (and therefore not capable of creating digital signatures).  
 
@@ -539,7 +549,7 @@ For other uses, such as a smart contract or a non-stealth address, a direct tran
 
 The `JoinSplit` contract validates the AZTEC join-split proof, and performs ECDSA signature validation logic for signatures signed by each note owner.  
 
-The ABI of `bytes proofData` is the following:  
+The ABI of `bytes data` is the following:  
 
 | offset | length | name | type | description |  
 | --- | --- | --- | --- | --- |  
@@ -586,7 +596,7 @@ In this context, the notes are interpreted as the following:
 
 This proof does not perform any authorization logic - it is the responsibility of the asset smart contracts involved in a trade to perform required permissioning checks.  
 
-The ABI of `bytes proofData` is identical to the ABI-encoding of the `JoinSplit.sol` verification smart contract. The `BilateralSwap` contract will throw if `n != 4` or `m != 2`.  
+The ABI of `bytes data` is identical to the ABI-encoding of the `JoinSplit.sol` verification smart contract. The `BilateralSwap` contract will throw if `n != 4` or `m != 2`.  
 
 Once a proof has been successfully validated, `bytes proofOutputs` will contain two entries, with the following note assignments:  
 
@@ -623,7 +633,7 @@ In a *credit* computation, the incentives are reversed and it is neccessary to s
 
 Similarly to `BilateralSwap`, this proof performs no permissioning checks. It is the responsibliity of the smart contract invoking `DividendComputation` to imbue meaning into the notes being used in the proof, and to ensure that the correct permissioning flows have been observed.  
 
-The ABI of `bytes proofData` is the following:
+The ABI of `bytes data` is the following:
 
 
 | offset | length | name | type | description |  
@@ -655,7 +665,7 @@ A `Mint` proof has 3 inputs: an AZTEC UXTO note that describes the existing tota
 
 It is important to keep track of the total amount of minted value as this may be neccessary for accounting purposes, or an audit. `totalMinted` is represented by an AZTEC note, i.e. only the registry owner must know the value of this note.  
 
-The ABI-encoding of `bytes proofData` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
+The ABI-encoding of `bytes data` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
 
 When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
 
@@ -675,7 +685,7 @@ The `Burn` contract enables AZTEC asset owners to burn notes, if `Registry.adjus
 
 The `Burn` contract functions in an identical manner to the `Mint` contract. The only difference is that `totalBurned` is tracked instead of `totalMinted`.  
 
-The ABI-encoding of `bytes proofData` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
+The ABI-encoding of `bytes data` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
 
 When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
 
@@ -727,7 +737,7 @@ Extracting the 'type' of a note is provided as a separate method, as this is a r
 
 For any AZTEC verification smart contract, the underlying zero-knowledge protocol must have a formal proof describing the protocol's completeness, soundness and honest-verifier zero-knowledge properties.  
 
-In addition to this, and faithfully implementing the logic of the protocol inside a smart contract, steps must be undertaken to prevent 'proof collision', where a `bytes proofOutput` instruction from a proof has an identical structure to a `bytes proofOutput` instruction from a different smart contract verifier. This is done by integrating the `uint24 proofId` variable associated with that specific verification smart contract into the `uint256 challenge` variable contained in each `bytes proofOutput` entry.
+In addition to this, and faithfully implementing the logic of the protocol inside a smart contract, steps must be undertaken to prevent 'proof collision', where a `bytes proofOutput` instruction from a proof has an identical structure to a `bytes proofOutput` instruction from a different smart contract verifier. This is done by integrating the `uint24 _proof` variable associated with that specific verification smart contract into the `uint256 challenge` variable contained in each `bytes proofOutput` entry.
 
 Secondly, the front-running of proofs must be prevented. This is the act of taking a valid zero-knowledge proof that is inside the transaction pool but not yet mined, and integrating the proof into a malicious transaction for some purpose that is different to that of the transaction sender. This is achieved by integrating the message sender into challenge variable - it will not be possible for a malicious actor to modify such a proof to create a valid proof of their own construction, unless they know the secret witnesses used in the proof.  
 
