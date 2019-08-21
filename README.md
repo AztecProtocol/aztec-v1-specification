@@ -2,48 +2,48 @@
 
 ## Table of contents  
 1 [Architecture](#architecture)
-  1.1 [The AZTEC Cryptography Engine](#the-aztec-cryptography-engine)
-  1.2 [AZTEC notes and ABI encoding](#abi-encoding-and-aztec-data-types)
+  - [The AZTEC Cryptography Engine](#the-aztec-cryptography-engine)
+  - [AZTEC notes and ABI encoding](#abi-encoding-and-aztec-data-types)
 2 [The Note Registry](#the-note-registry)
 3 [ACE, the AZTEC Cryptography Engine](#ace-the-aztec-cryptography-engine)
-  3.1 [Validating AZTEC proofs - defining the proof's identifier](#validating-aztec-proofs---defining-the-proofs-identifier)
-  3.2 [Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs](#enacting-confidential-transfer-instructions---defining-the-abi-encoding-of-proofoutputs)
-  3.3 [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
-  3.4 [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
-  3.5 [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
+  - [Validating AZTEC proofs - defining the proof's identifier](#validating-aztec-proofs---defining-the-proofs-identifier)
+  - [Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs](#enacting-confidential-transfer-instructions---defining-the-abi-encoding-of-proofoutputs)
+  - [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
+  - [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
+  - [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
 4 [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
-    4.1 [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
+  - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
 5 [Contract Interactions](#contract-interactions)
-  5.1 [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps)
-  5.2 [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
+  - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps)
+  - [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
 6 [Validating an AZTEC proof](#validating-an-aztec-proof)
 7 [Creating a note registry](#creating-a-note-registry)
-  7.1 [Note Registry Variables](#note-registry-variables)
+  - [Note Registry Variables](#note-registry-variables)
 8 [Processing a transfer instruction](#processing-a-transfer-instruction)
-    8.1 [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
+  - [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
 9 [Minting and burning AZTEC notes](#minting-aztec-notes)
-  9.1 [Minting](#minting)
-  9.2 [Burning] (#burning)
+  - [Minting](#minting)
+  - [Burning] (#burning)
 10 [Interacting with ACE: zkAsset](#interacting-with-ace-zkasset)
-  10.1 [Creating a confidential asset](#creating-a-confidential-asset)
-  10.2 [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
-  10.3 [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
-  10.4 [Permissioning](#permissioning)
+  - [Creating a confidential asset](#creating-a-confidential-asset)
+  - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
+  - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
+  - [Permissioning](#permissioning)
 11 [Proof verification contracts] (#proof-verification-contracts)
-  11.1 [JoinSplit.sol](#aztec-verifiers-joinsplitsol)
-  11.2 [Swap.sol](#aztec-verifiers-bilateralswapsol)
-  11.3 [Dividend.sol](#aztec-verifiers-dividendcomputationsol)
-  11.4 [PublicRange.sol](#aztec-verifiers-publicrangesol)
-  11.5 [PrivateRange.sol](#aztec-verifiers-privaterangesol)
-  11.6 [Mint.sol](#mintsol)
-  11.7 [Burn.sol](#aztec-verifiers-burnsol)
+  - [JoinSplit.sol](#aztec-verifiers-joinsplitsol)
+  - [Swap.sol](#aztec-verifiers-bilateralswapsol)
+  - [Dividend.sol](#aztec-verifiers-dividendcomputationsol)
+  - [PublicRange.sol](#aztec-verifiers-publicrangesol)
+  - [PrivateRange.sol](#aztec-verifiers-privaterangesol)
+  - [Mint.sol](#mintsol)
+  - [Burn.sol](#aztec-verifiers-burnsol)
 12 [ZkAsset] (#zkasset)
-  12.1 [ERC1724Mintable.sol](#erc1724mintablesol)
-  12.2 [ERC1724Burnable.sol](#erc1724burnablesol)
+  - [ERC1724Mintable.sol](#erc1724mintablesol)
+  - [ERC1724Burnable.sol](#erc1724burnablesol)
 13. [Specification of Utility libraries](#specification-of-utility-libraries)
 14. [Appendix](#appendix)
-  14.1 [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
-  14.2 [B - Interest streaming via AZTEC notes](#b---interest-streaming-via-aztec-notes)
+  - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
+  - [B - Interest streaming via AZTEC notes](#b---interest-streaming-via-aztec-notes)
 15 [Glossary](#glossary)
 
 # Architecture  
@@ -163,7 +163,7 @@ Because every confidential asset that uses an ACE note registry can have 100% co
 
 The `ACE.sol` contract is responsible for validating the set of AZTEC zero-knowledge proofs and performing any transfer instructions involving AZTEC notes. ACE is the controller of all AZTEC note registries and acts as the custodian of both AZTEC notes and any tokens that have been converted into AZTEC notes.  
 
-While it is possible to define note registries that are external to ACE, the state of these contract's note registries cannot be gauranteed and only a subset of proofs will be usable (i.e. if an asset uses an ACE note registry, transfer instructions from AZTEC proofs that involve multiple note registries are only enacted if every note registry is controlled by ACE).
+While it is possible to define note registries that are external to ACE, the state of these contract's note registries cannot be guranteed and only a subset of proofs will be usable (i.e. if an asset uses an ACE note registry, transfer instructions from AZTEC proofs that involve multiple note registries are only enacted if every note registry is controlled by ACE).
 
 ## Validating AZTEC proofs - defining the proof's identifier  
 
@@ -825,7 +825,7 @@ Getting `msg.sender` into the verification contract is done by passing through t
 
 ## B - Interest streaming via AZTEC notes  
 
-**concrete example** interest payments. Consider a contract that accepts a DAI note (let's call it the origination note), and issues confidential Loan notes in exchange, where the sum of the values of the loan notes is equal to the sum of the values of the origination note (this is enforced).
+Consider a contract that accepts a DAI note (let's call it the origination note), and issues confidential Loan notes in exchange, where the sum of the values of the loan notes is equal to the sum of the values of the origination note (this is enforced).
 
 When a deposit of confidential DAI is supplied to the contract in the form of an interest payment (call it an interest note), a ratio is defined between the value of the interest note and the origination note.  
 
