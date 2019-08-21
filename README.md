@@ -8,9 +8,9 @@
   - [The AZTEC Cryptography Engine](#the-aztec-cryptography-engine)
   - [ABI encoding and AZTEC data 'types'](#abi-encoding-and-aztec-data-types)
     - [AZTEC note ABI](#aztec-note-abi)
-    - [Type 1: UXTO notes](#type-1-uxto-notes)
+    - [Type 1: UTXO notes](#type-1-uxto-notes)
     - [Type 2: El-Gamal treasury notes](#type-2-el-gamal-treasury-notes)
-    - [Note metadata, recovering viewing keys and shared secrets](#note-metadata-recovering-viewing-keys-and-shared-secrets)
+    - [Note metaData, recovering viewing keys and shared secrets](#note-metaData-recovering-viewing-keys-and-shared-secrets)
 - [The Note Registry](#the-note-registry)
 - [ACE, the AZTEC Cryptography Engine](#ace-the-aztec-cryptography-engine)
   - [Validating AZTEC proofs - defining the proof's identifier](#validating-aztec-proofs---defining-the-proofs-identifier)
@@ -45,8 +45,8 @@
   - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
   - [confidentialApprove](#confidentialapprove)
 - [AZTEC Verifiers: JoinSplit.sol](#aztec-verifiers-joinsplitsol)
-- [AZTEC Verifiers: BilateralSwap.sol](#aztec-verifiers-bilateralswapsol)
-- [AZTEC Verifiers: DividendComputation.sol](#aztec-verifiers-dividendcomputationsol)
+- [AZTEC Verifiers: Swap.sol](#aztec-verifiers-bilateralswapsol)
+- [AZTEC Verifiers: Dividend.sol](#aztec-verifiers-dividendcomputationsol)
 - [AZTEC Verifiers: PublicRange.sol](#aztec-verifiers-publicrangesol)
 - [AZTEC Verifiers: PrivateRange.sol](#aztec-verifiers-privaterangesol)
 - [AZTEC Verifiers: Mint.sol](#aztec-verifiers-mintsol)
@@ -58,7 +58,7 @@
     - [`NoteUtils.getLength(bytes memory proofOutputsOrNotes) internal pure returns (uint256 length)`](#noteutilsgetlengthbytes-memory-proofoutputsornotes-internal-pure-returns-uint256-length)
     - [`NoteUtils.get(bytes memory proofOutputsOrNotes, uint256 i) internal pure returns (bytes memory out)`](#noteutilsgetbytes-memory-proofoutputsornotes-uint256-i-internal-pure-returns-bytes-memory-out)
     - [`NoteUtils.extractProofOutput(bytes memory proofOutput) internal pure returns (bytes memory inputNotes, bytes memory outputNotes, address publicOwner, int256 publicValue)`](#noteutilsextractproofoutputbytes-memory-proofoutput-internal-pure-returns-bytes-memory-inputnotes-bytes-memory-outputnotes-address-publicowner-int256-publicvalue)
-    - [`NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metadata)`](#noteutilsextractnotebytes-memory-note-internal-pure-returns-address-owner-bytes32-notehash-bytes-memory-metadata)
+    - [`NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metaData)`](#noteutilsextractnotebytes-memory-note-internal-pure-returns-address-owner-bytes32-notehash-bytes-memory-metaData)
     - [`NoteUtils.getNoteType(bytes memory note) internal pure returns (uint256 noteType)`](#noteutilsgetnotetypebytes-memory-note-internal-pure-returns-uint256-notetype)
 - [Appendix](#appendix)
   - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
@@ -98,7 +98,7 @@ Because using structs in external functions is still an experimental feature, th
 
 One key feature of ACE is the ability to support multiple note 'types'. Different note types enable the engine to support zero-knowledge proofs that use different techniques to represent encrypted value.  
 
-For example, the currently implemented basic AZTEC note is the most efficient way to represent encrypted value, however it's UXTO-like form may be unsuitable for some applications. On the other hand, once implemented, ElGamal 'treasury' notes could be used to emulate a more traditional account-balance model, where the balance is encrypted.
+For example, the currently implemented basic AZTEC note is the most efficient way to represent encrypted value, however it's UTXO-like form may be unsuitable for some applications. On the other hand, once implemented, ElGamal 'treasury' notes could be used to emulate a more traditional account-balance model, where the balance is encrypted.
 
 All notes use the same basic structure, but with different `publicKey` values. Every AZTEC zero-knowlege proof explicitly defines the type of note that it utilizes. Under no circumstances should it be possible to use a note of the wrong 'type' in a zero-knowledge proof.
 
@@ -112,9 +112,7 @@ The ABI encoding of a note is as follows:
 | 0x60   | L_pub   | publicKey | bytes | The public key of the note, that is used to encrypt value |  
 | 0x60 + L_pub | L_met | metaData | bytes | Note-specific metaData |
 
-`metadata` is not used by the logic of AZTEC zero-knowlege proof validators, but is instead used when broadcasting events involving a note. The metadata of a note can be used by the note's owner to recover the note's viewing key.
-
-### Type 1: UXTO notes  
+### Type 1: UTXO notes  
 
 This is the default note type and currently used by the protocol. The ABI formatting of this note's `publicKey` is as follows:
 
@@ -124,33 +122,49 @@ This is the default note type and currently used by the protocol. The ABI format
 | 0x20   | 0x20   | sigma | bytes32 | (compressed) bn128 group element |
 | 0x40   | 0x21   | ephemeral key | bytes33 | ephemeral public key used to recover viewing key |  
 
-`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains application specific information and is broadcast by events involving a note. 
-
-In the protocol, the metaData is used for two purposes. Firstly, it can be used by the note owner to decrypt a note. Secondly, it can be used by a note owner to grant note viewing key access to a third party.
-
-#### Use 1: Recovering viewing key
-Every note viewing key should be distinct, however users should not have to manage a multitude of unique viewing keys. In addition, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover. This process should be non-interactive.
-
-The solution is to use a shared secret protocol, between an 'ephemeral' public/private key pair and the public key of the note owner. An extension of this protocol can be used to derive 'stealth' addresses, if the recipient has a stealth wallet. Currently, our V1 APIs use the basic shared secret protocol for ease of use (traditional Ethereum wallets can own these kinds of AZTEC notes). At the smart contract level, the protocol is forward-compatible with stealth addresses.
-
-Therefore, the first use of the metadata field is to store the data that a user requires to recover their note viewing key - the 'ephemeral' public key. 
-
-#### Use 2: Granting view key access
-Secondly, the metaData can be used to grant note viewing key access to third parties. By calling note.setMetadata() an abritrary string can be passed and appended to the ephemeral key already exisitng in the metaData.  The note schema does not enforce any structure to this string, however the protocol passes a structured string that is used to directly grant viewing key access to third parties. The schema for the metaData structure used is:
-
-// TODO: Joe/Leila to input the most up to date metaData schema + explain how it is to be used
-
 ### Type 2: El-Gamal treasury notes  
 
-Treasury notes would enable a single 'account' to have their balance represented by a single treasury note (instead of a multitude of AZTEC UXTO-type notes). They are slightly more gas-expensive to use than AZTEC notes and are only used in a small subset of AZTEC zero-kowledge proofs.
+Treasury notes would enable a single 'account' to have their balance represented by a single treasury note (instead of a multitude of AZTEC UTXO-type notes). They are slightly more gas-expensive to use than AZTEC notes and are only used in a small subset of AZTEC zero-kowledge proofs.
 
 | Offset | Length | Name | Type | Description|
 | ------ | ------ | -------- | --- | --- |
 | 0x00   | 0x20   | ownerPubKey | bytes32 | (compressed) bn128 group element that maps to the public key of the note's owner |
 | 0x20   | 0x20   | noteEphemeralKey | bytes32 | (compressed) bn128 group element, a public key component of the note's ephemeral key |
 | 0x40 | 0x20 | noteCommitment | bytes32 | (compressed) bn128 group element, the core El-Gamal commitment |
-| 0x60   | -      | metadata | bytes | custom metadata associated with note |  
+| 0x60   | -      | metaData | bytes | custom metaData associated with note |  
 
+### metaData
+`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information and is broadcast by events involving a note. 
+
+The `metaData` schema has a default component and then an additional customData component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key whichcan be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, resulting in a schema as below:
+
+| Offset | Length | Name | Type | Description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x21 | ephemeral key | bytes32 | ephemeral key used in key exchange |  
+| 0x21 | 0x20 | approvedAddressesOffset | uint256 | relative offset to `address[] approvedAddresses`|  
+| 0x41 | 0x20 | encryptedViewKeysOffset | uint256 | relative offset to `bytes[] encryptedViewKeys` |  
+| 0x61 | 0x20 | appDataOffset | int256 | relative offset to `bytes[] appData` |  
+| 0x81 | L_addresses | approvedAddresses | address[] | addresses approved for access to viewing key |  
+| 0xa1 + L_addresses | L_encryptedViewKeys | encryptedViewKeys | bytes[] | IES encrypted viewing keys, for each address |  
+| 0xa1 + L_addresses + L_encryptedViewKeys | L_appData | appData | bytes[] | application specific data |  
+
+Therefore, included in the `metaData` is: the note ephemeral key, a series of IES encrypted viewing keys for use in granting note access to third parties and data for application specific use cases. These are used to enable various functionality as defined below.
+
+
+#### Use 1: Recovering viewing key using the ephemeral key
+Every note viewing key should be distinct, however users should not have to manage a multitude of unique viewing keys. In addition, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover. This process should be non-interactive.
+
+The solution is to use a shared secret protocol, between an 'ephemeral' public/private key pair and the public key of the note owner. An extension of this protocol can be used to derive 'stealth' addresses, if the recipient has a stealth wallet. Currently, our V1 APIs use the basic shared secret protocol for ease of use (traditional Ethereum wallets can own these kinds of AZTEC notes). At the smart contract level, the protocol is forward-compatible with stealth addresses.
+
+Therefore, the first use of the metaData field is to store the data that a user requires to recover their note viewing key - the 'ephemeral' public key. 
+
+#### Use 2: Granting view key access
+Note viewing key access can be directly granted to third parties by encoding an IES encrypted viewing key and the associated approved address into the `metaData`. This allows a method whereby viewing key access can be efficiently computed, without having to derive using the ephemeral key. 
+
+Granting of viewing keys is supported by the `zkAsset.updateNoteMetaData(bytes32 noteHash, bytes calldata metaData)` function. This allows the `metaData` of an already existing note to be updated, and so grant viewing key access to additional parties. 
+
+#### Use 3: Application specific data
+Lastly, application specific data can be attached to the `metaData` of a note. This gives digital asset builders the option to attach custom data to an AZTEC note for an application specific utility. 
 
 # The Note Registry  
 
@@ -296,13 +310,13 @@ When processing a transfer instruction, the following criteria must be met:
 * Did the transfer instruction originate from the note registry's owner?  
 * Is the transfer instruction sourced from a *mathematically legitimate* AZTEC proof?  
 
-Because of these dual responsibilities, valid AZTEC proofs are *not* catalogued against specific note registries. The outputs of any valid proof can, theoretically, be issued to any note registry. After all, the existence of a valid proof indicates the resulting transfer instructions are balanced. This is the critical property that `ACE` *must* ensure, that all of its note registries are balanced and that there is no double spending.  
+Because of these dual responsibilities, valid AZTEC proofs are *not* catalogued against specific note registries. The outputs of any valid proof can, theoretically, be issued to any note ,registry. After all, the existence of a valid proof indicates the resulting transfer instructions are balanced. This is the critical property that `ACE` *must* ensure, that all of its note registries are balanced and that there is no double spending.  
   
 Restricting note registry updates to the creator of a given note registry provides a natural separation of concerns - `ACE` determines whether a transfer instruction *can* happen and the note registry owner determines whether the instruction *should* happen.  
 
 ### Separating proof validation and note registry interactions  
 
-Because of these dual responsibilities, it might seem intuitive to roll proof validation and note registry updates into a single function. However this would undermine one of the key strengths of the AZTEC protocol - that third party dApps can validate zero-knowledge proofs and send the resulting transfer instructions to AZTEC-compatible confidential assets. [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps] demonstrates this type of interaction and, consequently, the importance of separating proof validation from note registry updates.
+Because of these dual responsibilities, it might seem intuitive to roll proof validation and note registry updates into a single function. However, this would undermine one of the key strengths of the AZTEC protocol - that third party dApps can validate zero-knowledge proofs and send the resulting transfer instructions to AZTEC-compatible confidential assets. [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps] (#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps) demonstrates this type of interaction and, consequently, the importance of separating proof validation from note registry updates.
 
 # Contract Interactions  
 
@@ -340,11 +354,11 @@ The dApp-to-zkAsset interactions are identical for both `zkAsset A` and `zkAsset
 
 2. The `zk-dApp` contract queries `ACE` to validate the received proof,  via `ACE.validateProof(_proof, msg.sender, data)`. If `_proof` is not supported by `zk-dApp` the transaction will `revert`.
 
-3. On receipt of a valid proof, `ACE` will identify the `validator` smart contract associated with `_proof` (in this case, `BilateralSwap.sol`). `ACE` will then call `validator.validateProof(data, sender, commonReferenceString)`. If the `_proof` provided does not map to a valid `validator` smart contract, the transaction will `revert`.
+3. On receipt of a valid proof, `ACE` will identify the `validator` smart contract associated with `_proof` (in this case, `Swap.sol`). `ACE` will then call `validator.validateProof(data, sender, commonReferenceString)`. If the `_proof` provided does not map to a valid `validator` smart contract, the transaction will `revert`.
 
 4. If the proof is valid, the `validator` contract will return a `bytes proofOutputs` object to `ACE`. If the proof is invalid, the transaction will `revert`.  
 
-5. On receipt of a valid `bytes proofOutputs`, `ACE` will examine `_proof` to determine if the proof is of the `BALANCED` category. If this is the case, `ACE` will iterate over each `bytes proofOutput` in `bytes proofOutputs`. For each `proofOutput`, the `bytes32 proofHash` is computed. A unique proof identifier, `bytes32 _proofentifier = keccak256(abi.encode(_proof, msg.sender, proofHash))`, is then computed. This is used as a key to log the existence of a valid proof - `validProofs[_proofentifier] = true`.  
+5. On receipt of a valid `bytes proofOutputs`, `ACE` will examine `_proof` to determine if the proof is of the `BALANCED` category. If this is the case, `ACE` will iterate over each `bytes proofOutput` in `bytes proofOutputs`. For each `proofOutput`, the `bytes32 proofHash` is computed. A unique proof identifier, `bytes32 _proofIdentifier = keccak256(abi.encode(_proof, msg.sender, proofHash))`, is then computed. This is used as a key to log the existence of a valid proof - `validProofs[_proofIdentifier] = true`.  
 
 Once this has been completed, `ACE` will return `bytes proofOutputs` to `zk-dApp`.
 
@@ -352,7 +366,7 @@ Once this has been completed, `ACE` will return `bytes proofOutputs` to `zk-dApp
 
 At this stage, `zk-dApp` is in posession of transfer instructions that result from a valid `Swap` proof, in the form of a `bytes proofOutputs` object received from `ACE`.  
 
-For the `Swap` proof, there will be `2` entries inside `proofOutputs`, with each entry mapping to one the two confidential assets - `zkAsset A` and `zkAsset B`.  
+For the `Swap` proof, there will be `2` entries inside `proofOutputs`, with each entry mapping to one of the two confidential assets - `zkAsset A` and `zkAsset B`.  
 
 6. The `zk-dApp` contract issues a transfer instruction to `zkAsset A` via `zkAsset.confidentialTransferFrom(_proof, proofOutput)`.  
 
@@ -407,16 +421,16 @@ AZTEC zero-knowledge proofs can be validated via `ACE.validateProof(uint24 _proo
 
 The `bytes data` uses a custom ABI encoding that is unique to each proof that AZTEC supports. It is intended that, if a contract requires data from a proof, that data is extracted from `bytes proofOutputs` and not the input data.  
 
-If the `uint8 category` inside `_proof` is not of type `UTILITY`, `ACE` will record the validity of the proof as a state variable inside `mapping(bytes32 => bool) validatedProofs`.  
+If the `uint8 category` inside `_proof` is of type `BALANCED`, `ACE` will record the validity of the proof as a state variable inside `mapping(bytes32 => bool) validatedProofs`.  
 
 If the proof is not valid, an error will be thrown. If the proof is valid, a `bytes proofOutputs` variable will be returned, describing the instructions to be performed to enact the proof. For `BALANCED` proofs, each individual `bytes proofOutput` variable inside `bytes proofOutputs` will satisfy a balancing relationship.  
 
 
 # Creating a note registry  
 
-An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _convertable)`.  
+An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
 
-The `_canAdjustSupply` flag defines whethe the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_convertable` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_convertable` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
+The `_canAdjustSupply` flag defines whethe the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_canConvert` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_canConvert` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
 
 For a given note registry, only the owner can call `ACE.updateNoteRegistry`, `ACE.mint` or `ACE.burn`. Traditionally this is imagined to be a `zkAsset` smart contract. This allows the `zkAsset` contract to have absolute control over what types of proof can be used to update the note registry, as well as the conditions under which updates can occur (if extra validation logic is required, for example).  
 
@@ -424,15 +438,15 @@ For a given note registry, only the owner can call `ACE.updateNoteRegistry`, `AC
 
 ### `bytes32 confidentialTotalMinted`  
 
-This variable is the keccak256 hash of an AZTEC UXTO note that defines the total amount of value that a note registry has directly minted.  
+This variable is the keccak256 hash of an AZTEC UTXO note that defines the total amount of value that a note registry has directly minted.  
 
-When a note registry is created, this note is set to be an AZTEC UXTO note that has a value of `0` and a viewing key of `1`. 
+When a note registry is created, this note is set to be an AZTEC UTXO note that has a value of `0` and a viewing key of `1`. 
 
 ### `bytes32 confidentialTotalBurned`  
 
-This variable is the kecckak256 hash of an AZTEC UXTO note that defines the total amount of value that a note registry has directly burned.
+This variable is the kecckak256 hash of an AZTEC UTXO note that defines the total amount of value that a note registry has directly burned.
 
-When a note registry is created, this note is set to be an AZTEC UXTO note that has a value of `0` and a viewing key of `1`. 
+When a note registry is created, this note is set to be an AZTEC UTXO note that has a value of `0` and a viewing key of `1`. 
 
 ### `uint256 scalingFactor`  
 
@@ -479,9 +493,9 @@ Under certain circumstances, a digital asset owner may wish to directly mint AZT
 
 At the creation of a note registry, the registry owner can choose whether their registry is 'mintable' by setting `bool _canAdjustSupply` to `true` in `ACE.createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
 
-A 'mintable' note registry has access to the `ACE.mint(uint24 __proof, bytes _data)` function. This function will validate the proof defined by `__proof, _data` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
+A 'mintable' note registry has access to the `ACE.mint(uint24 __proof, bytes _proofData, address _proofSender)` function. This function will validate the proof defined by `__proof, _data, _proofSender` (and assert that this is a `MINTABLE` proof) and then immediately enact the produced `bytes proofOutput` at the note registry controlled by `msg.sender`.  
 
-A `MINTABLE` proof follows a defined standard. The note registry contains a `bytes32 totalMinted` variable that is the hash of an AZTEC UXTO note that contains the total value of AZTEC notes that been minted by the registry owner.  
+A `MINTABLE` proof follows a defined standard. The note registry contains a `bytes32 totalMinted` variable that is the hash of an AZTEC UTXO note that contains the total value of AZTEC notes that been minted by the registry owner.  
 
 A `MINTABLE` proof will produce a `proofOutputs` object with two entries.  
 
@@ -496,11 +510,11 @@ If all checks pass, the relevant AZTEC notes will be added to the note registry.
 
 Care should be taken if AZTEC notes are directly minted into an asset that can be converted into ERC20 tokens. It is possible that a conversion is attempted on a note and the token balance of the note registry in question is insufficient. Under these circumstances the transaction will revert. It is the responsibility of the note registry owner to provide `ACE` with sufficient tokens to enable such a transfer, as it falls far outside the remit of the Cryptography Engine to request minting priviledges for any given ERC20 token.  
 
-This can be performed via `ACE.supplementTokens(uint _value)`, which will cause `ACE` to call `transferFrom` on the relevant ERC20 token, using `msg.sender` both as the transferee and the note registry owner. It is assumed that the private digital asset in question has ERC20 minting priviledges, if the note registry is also mintable.  
+This can be performed via `ACE.supplementTokens(uint256 _value)`, which will cause `ACE` to call `transferFrom` on the relevant ERC20 token, using `msg.sender` both as the transferee and the note registry owner. It is assumed that the private digital asset in question has ERC20 minting priviledges, if the note registry is also mintable.  
 
 # Burning AZTEC notes
 
-Burning is enacted in an identical fashion to note minting. The total amount of burned AZTEC notes is tracked by a `bytes32 totalBurned` variable.  
+Burning is enacted in an identical fashion to note minting. The total amount of burned AZTEC notes is tracked by a `bytes32 confidentialTotalBurned` variable.  
 
 Burn proofs follow a similar pattern - updating the `totalBurned` variable and destroying the specified AZTEC notes.  
 
@@ -518,19 +532,23 @@ A `zkAsset` contract must instantiate a note registry inside `ACE` via `ACE.crea
 
 ## Issuing a confidential transaction: confidentialTransfer
 
-The primary method of unilateral value transfer occurs via `zkAsset.confidentialTransfer(bytes data)`. In this method, the AZTEC proof defined by the contract's `DEFAULT_PROOF_ID` is used to enact a value transfer. The beneficiaries of the transaction are defined entirely by the contents of `bytes data`.  
+The primary method of unilateral value transfer occurs via `zkAsset.confidentialTransfer(bytes _proofData, bytes _signatures)`. In this method, the `joinSplit` AZTEC proof is used to enact a value transfer. The beneficiaries of the transaction are defined entirely by the contents of `bytes _proofData`.  
 
 Both `ACE.validateProof(data)` and `ACE.updateNoteRegistry(proofOutput)` must be called, with `proofOutput` being extracted from `ACE.validateProof`'s return data.  
 
 ## Issuing delegated confidential transactions: confidentialTransferFrom  
 
-The `confidentialTransferFrom(uint24 __proof, bytes data)` method is used to perform a delegated transfer. As opposed to `confidentialTransfer`, `confidentialTransferFrom` can use any proof supported by `ACE` (assuming the `zkAsset` contract accepts this type of proof).  
+The `confidentialTransferFrom(uint24 __proof, bytes _proofOutput)` method is used to perform a delegated transfer. As opposed to `confidentialTransfer`, `confidentialTransferFrom` can use any proof supported by `ACE` (assuming the `zkAsset` contract accepts this type of proof).  
 
-A consequence of this is that the `zkAsset` contract must validate permissioning. The default `joinSplit` proof validates that ECDSA signatures have been signed over every input note. However this is not suitable for a delegated transfer, where note 'owners' may be smart contracts (and therefore not capable of creating digital signatures).  
+## Permissioning
+It is the responsibility of the `zkAsset` to perform the required permissioning checks when value transfer occurs. The permissioning mechanism used in a `confidentialTransfer()` call is different to that used for a `confidentialTransferFrom()` call.
 
-For `confidentialTransferFrom` to be used, `confidentialApprove` must be called on every input note that is consumed  
+The `confidentialTransfer` method takes a set of EIP712 ECDSA `signatures` over each `inputNote` that is involved in the transfer. These are then validated in the method `confidentialTransferInternal()`. 
 
-## confidentialApprove  
+However, this method is not suitable for a delegated transfer calling `confidentialTransferFrom()`. In this case, the note 'owners' may be smart contracts and so unable to create digitial signatures. Therefore, for `confidentialTransferFrom()` to be used, a permission granting function `confidentialApprove()` must be called on every input note that is consumed.
+
+
+### confidentialApprove  
 
 The `confidentialApprove(bytes32 _noteHash, address _spender, bool _status, bytes memory _signature)` method gives the `_spender` address permission to use an AZTEC note, whose hash is defined by `_noteHash`, to be used in a zero-knowledge proof.  
 
@@ -557,32 +575,32 @@ The ABI of `bytes data` is the following:
 | 0x20 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
 | 0x40 | 0x20 | publicOwner | address | beneficiary of public tokens being used in proof |  
 | 0x60 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
-| 0x80 | 0x20 | inputSignaturesOffset | uint256 | relative offset to `bytes32[3][] inputSignatures` |  
+| 0x80 | 0x20 | inputOwnerOffset | uint256 | relative offset to `address[] inputOwners` |  
 | 0xa0 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
-| 0xe0 | 0x20 | noteMetadataOffset | uint256 | relative offset to `bytes[] noteMetadata` |  
-| 0x100 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
-| 0x100 + L_notes | L_sigs | inputSignatures | bytes32[3][] | ECDSA signature data for input notes |  
-| 0x100 + L_notes + L_sigs | L_owners | outputOwners | address[] | address of output note owners |  
-| 0x100 + L_notes + L_sigs + L_owners | L_metadata | noteMetadata | bytes[] | note metadata, used for event broadcasts |  
+| 0xc0 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xe0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xe0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xe0 + L_notes + L_inputOwners | L_owners | outputOwners | address[] | address of output note owners |  
+| 0xe0 + L_notes + L_inputOwners + L_owners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-**`uint[6][] notes`** contains the zero-knowledge proof data required for the set of input and output UXTO notes used inside `JoinSplit`. The ABI encoding is as follows:  
+**`uint[6][] notes`** contains the zero-knowledge proof data required for the set of input and output UTXO notes used inside `JoinSplit`. The ABI encoding is as follows:  
 
 | offset | length | name | type | description |  
 | --- | --- | --- | --- | --- |  
 | 0x00 | 0x20 | kBar | uint256 | blinded form of the note's value |  
 | 0x20 | 0x20 | aBar | uint256 | blinded form of the note's viewing key |  
-| 0x40 | 0x20 | gammaX | uint256 | x-coordinate of UXTO note point 'gamma' |  
-| 0x60 | 0x20 | gammaY | uint256 | y-coordinate of UXTO note point 'gamma' |  
-| 0x80 | 0x20 | sigmaX | uint256 | x-coordinate of UXTO note point 'sigma' |  
-| 0xa0 | 0x20 | sigmaY | uint256 | y-coordinate of UXTO note point 'sigma' |  
+| 0x40 | 0x20 | gammaX | uint256 | x-coordinate of UTXO note point 'gamma' |  
+| 0x60 | 0x20 | gammaY | uint256 | y-coordinate of UTXO note point 'gamma' |  
+| 0x80 | 0x20 | sigmaX | uint256 | x-coordinate of UTXO note point 'sigma' |  
+| 0xa0 | 0x20 | sigmaY | uint256 | y-coordinate of UTXO note point 'sigma' |  
 
 The amount of public 'value' being used in the join-split proof, `kPublic`, is defined as the `kBar` value of the last entry in the `uint[6][] notes` array. This value is traditionally empty (the last note does not have a `kBar` parameter) and the space is re-used to house `kPublic`.
   
-# AZTEC Verifiers: BilateralSwap.sol  
+# AZTEC Verifiers: Swap.sol  
 
-The `BilateralSwap` contract validates a zero-knowledge proof that defines an exchange of notes between two counter-parties, an order *maker* and an order *taker*. 
+The `Swap` contract validates a zero-knowledge proof that defines an exchange of notes between two counter-parties, an order *maker* and an order *taker*. 
 
-The proof involves 4 AZTEC UXTO notes, and proves the following:
+The proof involves 4 AZTEC UTXO notes, and proves the following:
 
 1. `note[0].value = note[2].value`  
 2. `note[1].value = note[3].value`  
@@ -596,7 +614,7 @@ In this context, the notes are interpreted as the following:
 
 This proof does not perform any authorization logic - it is the responsibility of the asset smart contracts involved in a trade to perform required permissioning checks.  
 
-The ABI of `bytes data` is identical to the ABI-encoding of the `JoinSplit.sol` verification smart contract. The `BilateralSwap` contract will throw if `n != 4` or `m != 2`.  
+The ABI of `bytes data` is identical to the ABI-encoding of the `JoinSplit.sol` verification smart contract. The `Swap` contract will throw if `n != 4` or `m != 2`.  
 
 Once a proof has been successfully validated, `bytes proofOutputs` will contain two entries, with the following note assignments:  
 
@@ -609,11 +627,25 @@ i.e. Both the order maker and order taker are destroying their *bid* notes in ex
 
 Each entry inside `proofOutputs` defines a balancing relationship. If `proofOutputs[0]` and `proofOutputs[1]` are sent to different ZKAsset smart contracts, this proof can be used to define a bilateral swap of AZTEC notes, between two counter-parties and across two asset classes.
 
-# AZTEC Verifiers: DividendComputation.sol  
+The ABI of `bytes data` is the following:
 
-The `DividendComputation` proof validates that an AZTEC UXTO note is equal to a public percentage of a second AZTEC UXTO note. This proof is belongs to the `UTILITY` category, as in isolation it does not describe a balancing relationship.  
+| offset | length | name | type | description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
+| 0x20 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
+| 0x40 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0x60 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
+| 0x80 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xa0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xe0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xa0 + L_notes + L_inputOwners | L_owners | outputOwners | address[] | address of output note owners |  
+| 0xa0 + L_notes + L_inputOwners + L_owners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-The `DividendComputation` proof involves three AZTEC notes and two scalars `za, zb`. The scalars `za, zb` define a ratio and the proof proves the following:  
+# AZTEC Verifiers: Dividend.sol  
+
+The `Dividend` proof validates that an AZTEC UTXO note is equal to a public percentage of a second AZTEC UTXO note. This proof is belongs to the `UTILITY` category, as in isolation it does not describe a balancing relationship.  
+
+The `Dividend` proof involves three AZTEC notes and two scalars `za, zb`. The scalars `za, zb` define a ratio and the proof proves the following:  
 
 * `note[1].value * za = note[2].value * zb + note[3].value`
 
@@ -623,45 +655,98 @@ In this context, `zb > za` and `note[1].value` is the **source** note. The **tar
 
 As the value of `note[1]` is unknown to all but the note owner, they have a free choice in choosing values for `note[2]` and `note[3]`. However in order to maximize the value of `note[2]`, it is in the note owner's interest to minimize `note[3].value`.  
 
-It is worth highlighting the fact that the `DividendComputation` proof, like all AZTEC proofs, it is impossible to present a satisfying proof if any notes have negative value.  
+It is worth highlighting the fact that the `Dividend` proof, like all AZTEC proofs, it is impossible to present a satisfying proof if any notes have negative value.  
 
-When utilizing the `DividendComputation` proof inside a smart contract, care should be taken to determine whether the proof is being utilized to validate a *debit* computation or a *credit* computation, as it important to ensure that the sender of the proof is incentivized to minimize the value of `note[3]` (not to maximize it).
+When utilizing the `Dividend` proof inside a smart contract, care should be taken to determine whether the proof is being utilized to validate a *debit* computation or a *credit* computation, as it important to ensure that the sender of the proof is incentivized to minimize the value of `note[3]` (not to maximize it).
 
 In a *debit* computation, the note owner is proving that an AZTEC note correctly represents a transfer of value *from* the note owner. For example, a loan repayment. In this context, it is in the note owner's interest to *minimize* the value of the **target** note. It is therefore important to set `note[1]` as the **target** note and `note[2]` as the **source** note. Under this formulism, increasing `note[3].value` will also increase the value of the target note. The note owner, therefore, is incentivized to ensure that `note[3].value` is as small as possible. In this situation, malicious behaviour is prevented because of the AZTEC range proof: `note[3].value` cannot be negative.  
 
 In a *credit* computation, the incentives are reversed and it is neccessary to set `note[1]` as the **source** note, and `note[2]` as the **target** note.  
 
-Similarly to `BilateralSwap`, this proof performs no permissioning checks. It is the responsibliity of the smart contract invoking `DividendComputation` to imbue meaning into the notes being used in the proof, and to ensure that the correct permissioning flows have been observed.  
+Similarly to `Swap`, this proof performs no permissioning checks. It is the responsibliity of the smart contract invoking `Dividend` to imbue meaning into the notes being used in the proof, and to ensure that the correct permissioning flows have been observed.  
 
 The ABI of `bytes data` is the following:
-
 
 | offset | length | name | type | description |  
 | --- | --- | --- | --- | --- |  
 | 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
 | 0x20 | 0x20 | za | uint256 | dividend computation scalar |  
 | 0x40 | 0x20 | zb | uint256 | dividend computation scalar |  
-| 0x60 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0x60 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
+| 0x80 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
 | 0xa0 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
-| 0xe0 | 0x20 | noteMetadataOffset | uint256 | relative offset to `bytes[] noteMetadata` |  
-| 0x100 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
-| 0x100 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
-| 0x100 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
-| 0x100 + L_notes + L_inputOwers + L_outputOwners | L_metadata | noteMetadata | bytes[] | note metadata, used for event broadcasts |  
+| 0xc0 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xe0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xe0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xe0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
+| 0xe0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
 # AZTEC Verifiers: PublicRange.sol  
 
-TODO: `PublicRange.sol` is still in the implementation phase
+The `PublicRange` proof validates in zero-knowledge that the value of one AZTEC note is greater than or equal to, or less than or equal to a public integer. It belongs to the `UTILITY` proof category. 
+
+The proof involves three quantities:
+- `originalNote` = note who's inequality relation we seek to prove
+- `publicComparison` = public integer, which the `originalNote` is being compared against
+- `utilityNote` = helper note, used to construct an appropriate proof relation
+
+These quantities are then used to construct a proof relation:
+`originalNoteValue = publicComparison + utilityNoteValue`.
+
+In addition, a boolean `isGreaterOrEqual` is supplied to the proof. This is used to control whether the proof is for a greater than or equal to, or less than or equal to scenario. 
+
+If `isGreaterOrEqual` is true, then it is a greater than or equal proof and `originalNoteValue >= publicComparison`. If `false`, it is a less than or equal to proof that `originalNoteValue <= publicComparison`. 
+
+The ABI of `bytes data` is the following:
+
+| offset | length | name | type | description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
+| 0x20 | 0x20 | publicComparison | uint256 | public integer note value compared against |  
+| 0x40 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
+| 0x60 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0x80 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
+| 0xa0 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xc0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xc0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xc0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
+| 0xc0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
 # AZTEC Verifiers: PrivateRange.sol  
 
-TODO: `PrivateRange.sol` is still in the implementation phase
+The `PrivateRange` proof validates in zero-knowledge that the value of one AZTEC note is greater than or less than the value of a second AZTEC note. It belongs to the `UTILITY` proof category as no true balancing relationship is satisfied.
+
+The proof involves three AZTEC notes:
+- `originalNote` = note who's inequality relation we seek to prove
+- `comparisonNote` = note being compared against
+- `utilityNote` = helper note, used to construct an appropriate proof relation
+
+These notes are used to construct the following proof relation: `originalNote.value = comparisonNote.value + utilityNote.value`
+
+If this is satisfied, it means that `originalNote.value > comparisonNote.value`. Note, that the range proof means it is not possible to construct notes with a value less than zero. In order to construct a less than proof (i.e. `originalNote.value < comparisonNote.value`), the user must change the input order to show that `comparisonNote.value > originalNote.value`
+
+The `proofOutputs` object returned contains one `proofOutput` object. The `inputNotes` corresponds to `originalNote` and `comparisonNote`, with the `outputNotes` corresponding to `utilityNote`. The output note has no physical meaning and is used to construct a mathematically appropriate proof relation.
+
+The ABI of `bytes data` is the following:
+
+| offset | length | name | type | description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
+| 0x20 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
+| 0x40 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0x60 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
+| 0x80 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xa0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xa0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xa0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
+| 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
+
 
 # AZTEC Verifiers: Mint.sol  
 
 The `Mint` contract enables AZTEC asset owners to directly mint notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.mint`.
 
-A `Mint` proof has 3 inputs: an AZTEC UXTO note that describes the existing total value that has been minted into this registry, `totalMinted`, an AZTEC UXTO note that describes the new value of `totalMinted`, and a vector of AZTEC UXTO notes that are to be minted.  
+A `Mint` proof has 3 inputs: an AZTEC UTXO note that describes the existing total value that has been minted into this registry, `totalMinted`, an AZTEC UTXO note that describes the new value of `totalMinted`, and a vector of AZTEC UTXO notes that are to be minted.  
 
 It is important to keep track of the total amount of minted value as this may be neccessary for accounting purposes, or an audit. `totalMinted` is represented by an AZTEC note, i.e. only the registry owner must know the value of this note.  
 
@@ -678,6 +763,20 @@ When encoding `bytes proofOutputs`, the following mapping between input `notes` 
 * `proofOutputs[1].outputNotes = [notes[2], ..., notes[n]]`
 
 i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
+
+The ABI of `bytes data` is the following:
+
+| offset | length | name | type | description |  
+| --- | --- | --- | --- | --- |  
+| 0x00 | 0x20 | challenge | uint256 | zero-knowledge proof challenge |  
+| 0x20 | 0x20 | notesOffset | uint256 | relative offset to `uint[6][] notes` |  
+| 0x40 | 0x20 | inputOwnersOffset | uint256 | relative offset to `address[] inputOwners` |  
+| 0x60 | 0x20 | outputOwnersOffset | uint256 | relative offset to `address[] outputOwners` |  
+| 0x80 | 0x20 | notemetaDataOffset | uint256 | relative offset to `bytes[] notemetaData` |  
+| 0xa0 | L_notes | notes | uint[6][] | zero-knowledge proof data for notes |  
+| 0xa0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
+| 0xa0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
+| 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
 # AZTEC Verifiers: Burn.sol  
 
@@ -724,7 +823,7 @@ This method will return the `i`'th entry of an AZTEC ABI-encoded array. If `i` i
 
 This method will extract the constituent members of `bytes proofOutput`.
 
-### `NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metadata)`  
+### `NoteUtils.extractNote(bytes memory note) internal pure returns (address owner, bytes32 noteHash, bytes memory metaData)`  
 
 This method will extract the constituent members of an AZTEC ABI-encoded note. Such as the notes contained inside `proofOutput.inputNotes` and `proofOutput.outputNotes`.
 
