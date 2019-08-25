@@ -55,8 +55,7 @@ The protocol is architected to optimize for the following factors:
 1. customizability - AZTEC assets must have confidential transaction semantics that can be modified to suit the ends of the user  
 2. interoperability - different AZTEC assets must conform to a standard interface that dApps can use to settle confidential transactions  
 3. efficiency - no redundant computation should be performed when verifying confidential transactions  
-4. qualified upgradability - as improvements are made to the underlying cryptographic protocols, and additional proof systems are added into AZTEC, existing confidential assets should be able to enjoy the benefits of these improvements. At the same time, users of AZTEC must be able to have confidence that they can opt out of these upgrades - that the verification algorithms used to validate existing zero-knowledge proofs are immutable  
-
+4. qualified upgradability - as improvements are made to the underlying cryptographic protocols, and additional proof systems are added into AZTEC, existing confidential assets should be able to enjoy the benefits of these improvements. At the same time, users of AZTEC must be able to have confidence that they can opt out of these upgrades - that the verification algorithms used to validate existing zero-knowledge proofs are immutable. In addition, as upgrades are made to the logic of note registries, user must have the option to benefit from these upgrades whilst also being able to opt out.
 ## The AZTEC Cryptography Engine  
 
 The focus of our protocol is this cryptography engine (ACE.sol). ACE is the ultimate arbiter of the correctness of an AZTEC zero-knowledge proof. AZTEC assets subscribe to ACE and call on it to validate proofs.  
@@ -77,13 +76,13 @@ Because using structs in external functions is still an experimental feature, th
 
 ### AZTEC note ABI
 
-One key feature of ACE is the ability to support multiple note 'types'. Different note types enable the engine to support zero-knowledge proofs that use different techniques to represent encrypted value.  
+One key feature of ACE is the ability to support multiple note 'types'. Different note types enable the engine to support zero-knowledge proofs that use different techniques to represent encrypted value.
 
 For example, the currently implemented basic AZTEC note is the most efficient way to represent encrypted value, however it's UTXO-like form may be unsuitable for some applications. On the other hand, once implemented, ElGamal 'treasury' notes could be used to emulate a more traditional account-balance model, where the balance is encrypted.
 
-All notes use the same basic structure, but with different `publicKey` values. Every AZTEC zero-knowlege proof explicitly defines the type of note that it utilizes. Under no circumstances should it be possible to use a note of the wrong 'type' in a zero-knowledge proof.
+All notes use the same basic structure, but with different publicKey values. Every AZTEC zero-knowlege proof explicitly defines the type of note that it utilizes. Under no circumstances should it be possible to use a note of the wrong 'type' in a zero-knowledge proof.
 
-The ABI encoding of a note is as follows:  
+The ABI encoding of a note is as follows:
 
 | Offset | Length | Name | Type | Description|
 | ------ | ------ | -------- | --- | --- |
@@ -115,9 +114,9 @@ Treasury notes would enable a single 'account' to have their balance represented
 | 0x60   | -      | metaData | bytes | custom metaData associated with note |  
 
 ### metaData
-`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information and is broadcast by events involving a note. 
+`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information and is broadcast by events involving a note.
 
-The `metaData` schema has a default component and then an additional customData component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key whichcan be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, resulting in a schema as below:
+The metaData schema has a default component and then an additional `customData` component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key whichcan be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, resulting in a schema as below:
 
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
@@ -161,9 +160,65 @@ Because every confidential asset that uses an ACE note registry can have 100% co
 
 # ACE, the AZTEC Cryptography Engine
 
-The `ACE.sol` contract is responsible for validating the set of AZTEC zero-knowledge proofs and performing any transfer instructions involving AZTEC notes. ACE is the controller of all AZTEC note registries and acts as the custodian of both AZTEC notes and any tokens that have been converted into AZTEC notes.  
+The ACE.sol contract is responsible for validating the set of AZTEC zero-knowledge proofs and performing any transfer instructions involving AZTEC notes. ACE is the controller of all AZTEC note registries and acts as the custodian of both AZTEC notes and any tokens that have been converted into AZTEC notes.
 
 While it is possible to define note registries that are external to ACE, the state of these contract's note registries cannot be guranteed and only a subset of proofs will be usable (i.e. if an asset uses an ACE note registry, transfer instructions from AZTEC proofs that involve multiple note registries are only enacted if every note registry is controlled by ACE).
+
+The ACE has the following interface:
+```
+/**
+ * @title IACE
+ * @author AZTEC
+ * @dev Standard defining the interface for ACE.sol
+ * Copyright Spilsbury Holdings Ltd 2019. All rights reserved.
+ **/
+interface IACE {
+
+    function mint(
+        uint24 _proof,
+        bytes calldata _proofData,
+        address _proofSender
+    ) external returns (bytes memory);
+
+    function burn(
+        uint24 _proof,
+        bytes calldata _proofData,
+        address _proofSender
+    ) external returns (bytes memory);
+
+    function validateProof(uint24 _proof, address _sender, bytes calldata) external returns (bytes memory);
+
+    function clearProofByHashes(uint24 _proof, bytes32[] calldata _proofHashes) external;
+
+    function setCommonReferenceString(bytes32[6] calldata _commonReferenceString) external;
+
+    function invalidateProof(uint24 _proof) external;
+
+    function validateProofByHash(
+        uint24 _proof,
+        bytes32 _proofHash,
+        address _sender
+    ) external view returns (bool);
+
+    function setProof(
+        uint24 _proof,
+        address _validatorAddress
+    ) external;
+
+    function incrementLatestEpoch() external;
+
+    function getCommonReferenceString() external view returns (bytes32[6] memory);
+
+    function getValidatorAddress(uint24 _proof) external view returns (address validatorAddress);
+
+    function getNote(address _registryOwner, bytes32 _noteHash) external view returns (
+        uint8 status,
+        uint40 createdOn,
+        uint40 destroyedOn,
+        address noteOwner
+    );
+}
+```
 
 ## Validating AZTEC proofs - defining the proof's identifier  
 
@@ -277,6 +332,9 @@ This creates a unique key, that is mapped to `true` if the proof is valid (inval
 Contracts can query `ACE` with a `bytes proofOutput`, combined with a `uint24 _proof` and the `address` of the entity that issued the instruction. `ACE` can validate whether this instruction came from a valid proof.  
 
 This mechanism enables smart contracts to issue transfer instructions on behalf of both users and other smart contracts, enabling zero-knowledge confidential dApps. 
+
+## ACE owner
+It should be noted that in upon deployment, the owner of the ACE will be a multi-signature wallet.
 
 
 # The key responsibilities of `ACE`  
@@ -407,9 +465,9 @@ If the `uint8 category` inside `_proof` is of type `BALANCED`, `ACE` will record
 If the proof is not valid, an error will be thrown. If the proof is valid, a `bytes proofOutputs` variable will be returned, describing the instructions to be performed to enact the proof. For `BALANCED` proofs, each individual `bytes proofOutput` variable inside `bytes proofOutputs` will satisfy a balancing relationship.  
 
 
-# Creating a note registry  
-
-An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.  
+# Note registry implementation
+## Creating a note registry
+An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.
 
 The `_canAdjustSupply` flag defines whethe the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_canConvert` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_canConvert` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
 
@@ -442,6 +500,289 @@ This variable represents the total amount of tokens that currently reside within
 ### `ERC20 linkedToken`  
 
 This is the address of the registry's linked ERC20 token. Only one token can be linked to an address.
+
+### ` canAdjustSupply`
+
+Flag determining whether the note registry has minting and burning priviledges.
+
+### `canConvert`
+
+Flag determining whether the note registry has public to private, and vice versa, conversion priviledges.
+
+### `totalSupplemented`
+
+Total number of tokens supplemented to the ACE, as a result of tokens being transferred when conversion of minted notes to public value was attempted and there were not sufficient tokens held by ACE.
+
+## Smart contract implementation
+
+The note registry functionality is enabled by a suite of smart contracts. This is principally to enable upgradeability and given that ACE is immutable, the decision was taken to break the note registries out into their own upgradeable modules.
+
+Of the various upgradeability patterns available, the unstructured storage proxy pattern developed by Open Zeppelin is used. The foundation of this pattern is to seperate the storage of the note registry, which defines the set of valid notes, from the logic, behaviour and methods of the note registry. There are four base contracts involved in this implementation: `Behaviour.sol`, `AdminUpgradeabilityProxy.sol`, `Factory.sol` and `NoteRegistryManager.sol`. 
+
+### Behaviour contract - `Behaviour.sol`
+
+The behaviour contract defines the methods and contains the logic of the note registry. It is this contract that is the mutable, upgradeable contract and the method whereby the implementation of note registry methods is upgraded. All behaviour contracts must abide by a set minimum API in order to maintain compatibility with ACE:
+
+```
+/** 
+ * @title/**
+ * @title NoteRegistryBehaviour interface which defines the base API
+        which must be implemented for every behaviour contract.
+ * @author AZTEC
+ * @dev This interface will mostly be used by ACE, in order to have an API to
+        interact with note registries through proxies.
+ * The implementation of all write methods should have an onlyOwner modifier.
+ *
+ * Copyright Spilsbury Holdings Ltd 2019. All rights reserved.
+ **/
+contract NoteRegistryBehaviour is Ownable, IAZTEC {
+    using SafeMath for uint256;
+
+    bool public isActiveBehaviour;
+    bool public initialised;
+    address public dataLocation;
+
+    constructor () Ownable() public {
+        isActiveBehaviour = true;
+    }
+
+    /**
+        * @dev Initialises the data of a noteRegistry. Should be called exactly once.
+        *
+        * @param _newOwner - the address which the initialise call will transfer ownership to
+        * @param _scalingFactor - defines the number of tokens that an AZTEC note value of 1 maps to.
+        * @param _canAdjustSupply - whether the noteRegistry can make use of minting and burning
+        * @param _canConvert - whether the noteRegistry can transfer value from private to public
+            representation and vice versa
+    */
+    function initialise(
+        address _newOwner,
+        uint256 _scalingFactor,
+        bool _canAdjustSupply,
+        bool _canConvert
+    ) public;
+
+    /**
+        * @dev Fetches data of the registry
+        *
+        * @return scalingFactor - defines the number of tokens that an AZTEC note value of 1 maps to.
+        * @return confidentialTotalMinted - the hash of the AZTEC note representing the total amount
+            which has been minted.
+        * @return confidentialTotalBurned - the hash of the AZTEC note representing the total amount
+            which has been burned.
+        * @return canConvert - the boolean whih defines if the noteRegistry can convert between
+            public and private.
+        * @return canConvert - the boolean whih defines if the noteRegistry can make use of
+            minting and burning methods.
+    */
+    function getRegistry() public view returns (
+        uint256 scalingFactor,
+        bytes32 confidentialTotalMinted,
+        bytes32 confidentialTotalBurned,
+        bool canConvert,
+        bool canAdjustSupply
+    );
+
+    /**
+        * @dev Enacts the state modifications needed given a successfully validated burn proof
+        *
+        * @param _proofOutputs - the output of the burn validator
+    */
+    function burn(bytes calldata _proofOutputs) external;
+
+    /**
+        * @dev Enacts the state modifications needed given a successfully validated mint proof
+        *
+        * @param _proofOutputs - the output of the mint validator
+    */
+    function mint(bytes calldata _proofOutputs) external;
+
+    /**
+        * @dev Enacts the state modifications needed given the output of a successfully validated proof.
+        * The _proofId param is used by the behaviour contract to (if needed) restrict the versions of proofs
+        * which the note registry supports, useful in case the proofOutputs schema changes for example.
+        *
+        * @param _proof - the id of the proof
+        * @param _proofOutput - the output of the proof validator
+        *
+        * @return publicOwner - the non-ACE party involved in this transaction. Either current or desired
+        *   owner of public tokens
+        * @return transferValue - the total public token value to transfer. Seperate value to abstract
+        *   away scaling factors in first version of AZTEC
+        * @return publicValue - the kPublic value to be used in zero-knowledge proofs
+    */
+    function updateNoteRegistry(
+        uint24 _proof,
+        bytes memory _proofOutput
+    ) public returns (
+        address publicOwner,
+        uint256 transferValue,
+        int256 publicValue
+    );
+
+    /**
+        * @dev Sets confidentialTotalMinted to a new value. The value must be the hash of a note;
+        *
+        * @param _newTotalNoteHash - the hash of the note representing the total minted value for an asset.
+    */
+    function setConfidentialTotalMinted(bytes32 _newTotalNoteHash) internal returns (bytes32);
+
+    /**
+        * @dev Sets confidentialTotalBurned to a new value. The value must be the hash of a note;
+        *
+        * @param _newTotalNoteHash - the hash of the note representing the total burned value for an asset.
+    */
+    function setConfidentialTotalBurned(bytes32 _newTotalNoteHash) internal returns (bytes32);
+
+    /**
+        * @dev Gets a defined note from the note registry, and returns the deconstructed object.
+            This is to avoid the interface to be
+        * _too_ opninated on types, even though it does require any subsequent note type to have
+            (or be able to mock) the return fields.
+        *
+        * @param _noteHash - the hash of the note being fetched
+        *
+        * @return status - whether a note has been spent or not
+        * @return createdOn - timestamp of the creation time of the note
+        * @return destroyedOn - timestamp of the time the note was destroyed (if it has been destroyed, 0 otherwise)
+        * @return noteOwner - address of the stored owner of the note
+    */
+    function getNote(bytes32 _noteHash) public view returns (
+        uint8 status,
+        uint40 createdOn,
+        uint40 destroyedOn,
+        address noteOwner
+    );
+
+    /**
+        * @dev Internal function to update the noteRegistry given a bytes array.
+        *
+        * @param _inputNotes - a bytes array containing notes
+    */
+    function updateInputNotes(bytes memory _inputNotes) internal;
+
+    /**
+        * @dev Internal function to update the noteRegistry given a bytes array.
+        *
+        * @param _outputNotes - a bytes array containing notes
+    */
+    function updateOutputNotes(bytes memory _outputNotes) internal;
+
+    /**
+        * @dev Internal function to create a new note object.
+        *
+        * @param _noteHash - the noteHash
+        * @param _noteOwner - the address of the owner of the note
+    */
+    function createNote(bytes32 _noteHash, address _noteOwner) internal;
+
+    /**
+        * @dev Internal function to delete a note object.
+        *
+        * @param _noteHash - the noteHash
+        * @param _noteOwner - the address of the owner of the note
+    */
+    function deleteNote(bytes32 _noteHash, address _noteOwner) internal;
+}
+```
+
+### Storage/proxy contract - `AdminUpgradeabilityProxy.sol`
+
+The storage contract is referred to as the Proxy and it has four main responsibilities:
+- Store the storage variables which define the set of unspent notes
+- Implement the delegation of calls to behaviour contracts via delegatecall(). In this way, note registry functionality on the behaviour contract is executed in the context of the calling proxy storage contract - allowing behaviour methods access to notes
+- Point the proxy to an upgraded behaviour implementation. This functionality is protected by an authorisation mechanism
+- Faciliate a possible change of admin
+
+The interface is defined as:
+```
+/**
+ * @title ProxyAdmin
+ * @dev Minimal interface for the proxy contract to be used by the Factory contract.
+ */
+contract ProxyAdmin {
+    function admin() external returns (address);
+
+    function upgradeTo(address _newImplementation) external;
+
+    function changeAdmin(address _newAdmin) external;
+}
+```
+In order to facilitate the process of upgrading the behaviour contract to a new instance, there are two further classes of contracts: factory contracts and the note registry manager.
+
+### Factory contracts: `Factory.sol`
+
+Factory contracts are used to deploy and link an upgraded behaviour instance to ACE. They are owned by the ACE and there is a factory contract for each type of behaviour instance that can be deployed: adjustable and mixed.
+
+```
+/** 
+ * @title/**
+ * @title NoteRegistryFactory
+ * @author AZTEC
+ * @dev Interface definition for factories. Factory contracts have the responsibility of managing the full lifecycle of
+ * Behaviour contracts, from deploy to eventual upgrade. They are owned by ACE, and all methods should only be callable
+ * by ACE.
+ **/
+contract NoteRegistryFactory is IAZTEC, Ownable  {
+    event NoteRegistryDeployed(address behaviourContract);
+
+    constructor(address _aceAddress) public Ownable() {
+        transferOwnership(_aceAddress);
+    }
+
+    function deployNewBehaviourInstance() public returns (address);
+
+    function handoverBehaviour(address _proxy, address _newImplementation, address _newProxyAdmin) public onlyOwner {
+        require(ProxyAdmin(_proxy).admin() == address(this), "this is not the admin of the proxy");
+        ProxyAdmin(_proxy).upgradeTo(_newImplementation);
+        ProxyAdmin(_proxy).changeAdmin(_newProxyAdmin);
+    }
+}
+```
+
+It is important to detail the versioning system used to keep track of the various factory versions - each factory is associated with a unique ID. The purpose of this ID is to identify the following properties of the factory and the resulting deployed behaviour contract:
+- Epoch - the version number
+- Cryptosystem - the crypto system that the note registry is interfacing with
+- Asset type - the type of asset that the note registry belongs to i.e. is it convertable, adjustable, various combinations of these
+
+Each of these variables is represented by a `uint8`, which are then packed together into a `uint24` to give the unique factory ID. Epoch number can only ever increase and all newly deployed behaviours must be backwards compatible.
+
+### Note registry manager - `NoteRegistryManager.sol`
+
+The note registry manager is inherited by ACE. Its responsibilities include:
+- Define the methods uses to deploy and upgrade registries
+- Define the methods uses to enact state changes sent by the owner of a registry
+- Manage the list of factories that are available
+
+An overview of this architecture is provided below:
+
+## Upgradeability functionality
+
+The above system of smart contracts can be used to deploy both non-upgradeable and upgradable `zkAsset`s. Only ownable `ZkAsset`s are able to be upgraded through this upgrade pattern and in the case where there is no owner, the latest note registry behaviour is deployed.
+
+### Deploying a new non-upgradeble ZkAsset
+1. A user deploys a ZkAsset contract, feeding in constructor arguments aceAddress, erc20Address, ERC20_SCALING_FACTOR, canAdjustSupply.
+2. The ZkAsset calls ACE, telling it to instantiate a note registry 
+3. ACE, through the NoteRegistryManager, finds the latest Factory, and tells it to deploy a new Proxy contract, and then to deploy a new Behaviour contract, passing the address of the Proxy contract in its constructor.
+4. Once deployed, the Factory transfers ownership of the Behaviour to ACE
+5. The Factory returns the address of the new Behaviour contract, and ACE adds to a mapping from address of ZkAsset to NoteRegistry (polymorphism).
+
+### Deploying a new upgradeable ZkAsset
+(Same steps as for non-upgradeable, except constructor of ZkAsset takes in a unique identifier for a particular note registry version, and ACE uses that information to deploy a specific NoteRegistry.)
+
+### Deploying a new NoteRegistry version
+1. A new Factory.sol is deployed, which has the ability to deploy new NoteRegistries, and can manage transferring ownership from itself to an address it received
+2. The Owner of ACE sends a Tx associating a unique identifier with the address of the new Factory
+
+### Upgrading a ZkAsset's Noteregistry
+1. The Owner of a ZkAsset makes a call to upgrade its NoteRegistry, giving either a specific unique id of a particular factory, or leaving it blank to use the latest factory available.
+2. The ZkAsset calls ACE, telling it to upgrade its NoteRegistry, and passing it a specific version to use if any.
+3. ACE finds the NoteRegistry, fetches its associated Proxy address, and finds the relevant factory to call
+4. ACE tells the factory to deploy a new Behaviour, passing in the Proxy address it received.
+5. The factory deploys the new Behaviour contract
+6. Once deployed, the factory transfers ownership to ACE
+7. The address of the deployed Behaviour is sent back to ACE, which updates its mapping from ZkAsset to NoteRegistry address,
+8. ACE tells the old Behaviour to abdicate control over the Proxy contract in favour of the new Behaviour
 
 # Processing a transfer instruction  
 
@@ -505,7 +846,45 @@ If ERC20 tokens have been converted into AZTEC notes, which are subsequently bur
 
 # Interacting with ACE: zkAsset
 
-The `zkAsset.sol` contract is an implementation of a confidential token, that follows the [EIP-1724 standard](https://github.com/ethereum/EIPs/issues/1724). It is designed as a template that confidential digital asset builders can follow, to create an AZTEC-compatible asset.  
+The `zkAsset.sol` contract is an implementation of a confidential token, that follows the [EIP-1724 standard](https://github.com/ethereum/EIPs/issues/1724). It is designed as a template that confidential digital asset builders can follow, to create an AZTEC-compatible asset. All `ZkAssets` must follow the following minimum interface:
+```
+/**
+ * @title ZkAsset Interface
+ * @author AZTEC
+ * @dev An interface defining the ZkAsset standard 
+ * Copyright Spilsbury Holdings Ltd 2019. All rights reserved.
+ **/
+
+contract IZkAsset {
+
+    event CreateZkAsset(
+        address indexed aceAddress,
+        address indexed linkedTokenAddress,
+        uint256 scalingFactor,
+        bool indexed _canAdjustSupply,
+        bool _canConvert
+    );
+    event ApprovedAddress(address indexed addressApproved, bytes32 indexed noteHash);
+    event CreateNoteRegistry(uint256 noteRegistryId);
+    event CreateNote(address indexed owner, bytes32 indexed noteHash, bytes metadata);
+    event DestroyNote(address indexed owner, bytes32 indexed noteHash, bytes metadata);
+    event ConvertTokens(address indexed owner, uint256 value);
+    event RedeemTokens(address indexed owner, uint256 value);
+    event UpdateNoteMetaData(address indexed owner, bytes32 indexed noteHash, bytes metadata);
+    
+    function confidentialApprove(
+        bytes32 _noteHash,
+        address _spender,
+        bool _status,
+        bytes calldata _signature
+    ) external;
+
+    function confidentialTransferFrom(uint24 _proof, bytes calldata _proofOutput) external;
+    
+    function confidentialTransfer(bytes memory _proofData, bytes memory _signatures) public;
+}
+
+```
 
 ## Creating a confidential asset  
 
@@ -542,6 +921,23 @@ If `_signature = bytes(0x00)`, then `msg.sender` is expected to be the `address 
 This interface is designed to facilitate stealth addresses. For a stealth address, it is unlikely that the address will have any Ethereum funds to pay for gas costs, and a meta-transaction style transaction is required. In this situation, `msg.sender` will not map to the owner of the note and so an ECDSA signatue is used.  
 
 For other uses, such as a smart contract or a non-stealth address, a direct transaction sent by the correct `msg.sender` is possible by sending a null signature.
+
+## Types of ZkAssets
+There are various types of `zkAsset`s, which are differentiated based on the flags `canAdjustSupply`, `canConvert` and whether or not the asset is ownable. 
+
+`canAdjustSupply` determines whether the asset is able to mint or burn whilst `canConvert` determines whether public ERC20 tokens can be converted into AZTEC notes and vice versa. These flags are not exposed to the user instantiating the asset and are instead hardcoded into the constructor of the asset or derived from existing properties. `canAdjustSupply` is hardcoded into the constructor of the relevant asset, whilst `canConvert` is derived from whether a `linkedTokenAddress` was set in the asset's constructor.
+
+These flags give rise to the contracts whose properties are summarised in the below table:
+
+| Contract | canAdjustSupply | canConvert | Ownable 
+| --- | --- | --- | --- | --- |  
+| ZkAsset | N | P | N |
+| ZkAssetAdjustable | Y | P | N |
+| ZkAssetMintable | Y | P | Y |
+| ZkAssetBurnable | Y | P | Y |
+| ZkAssetOwnable | N | P | Y |
+
+where `Y` is yes, `N` no and `P` is possible (it is at the discretion of the instantiator). `ZkAssetMintable` is only able to mint, `ZkAssetBurnable` is only able to burn, whilst `ZkAssetAdjustable` is able to both mint and burn.
 
 
 # AZTEC Verifiers: JoinSplit.sol  
@@ -780,9 +1176,6 @@ When encoding `bytes proofOutputs`, the following mapping between input `notes` 
 i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
 
 
-# ERC1724Mintable.sol  
-
-# ERC1724Burnable.sol  
 
 # Specification of Utility libraries  
 
