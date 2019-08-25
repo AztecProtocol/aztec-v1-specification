@@ -11,19 +11,23 @@
   - [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
   - [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
   - [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
+  - [ACE owner] (#ace-owner)
 - [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
   - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
 - [Contract Interactions](#contract-interactions)
   - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps)
   - [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
 - [Validating an AZTEC proof](#validating-an-aztec-proof)
-- [Creating a note registry](#creating-a-note-registry)
+- [Note registry implementation](#note-registry-implementation)
+  - [Creating a note registry](#creating-a-note-registry)
   - [Note Registry Variables](#note-registry-variables)
+  - [Smart contract implementation](#smart-contract-implementation)
+  - [Upgradeability functionality](#upgradeability-functionality)
 - [Processing a transfer instruction](#processing-a-transfer-instruction)
   - [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
-- [Minting and burning AZTEC notes](#minting-aztec-notes)
-  - [Minting](#minting)
-  - [Burning] (#burning)
+- [Minting AZTEC notes](#minting-aztec-notes)
+  - [Minting and tokens](#minting-and-tokens)
+- [Burning AZTEC notes](#burning-aztec-notes)
 - [Interacting with ACE: zkAsset](#interacting-with-ace-zkasset)
   - [Creating a confidential asset](#creating-a-confidential-asset)
   - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
@@ -37,9 +41,6 @@
   - [PrivateRange.sol](#aztec-verifiers-privaterangesol)
   - [Mint.sol](#mintsol)
   - [Burn.sol](#aztec-verifiers-burnsol)
-- [ZkAsset] (#zkasset)
-  - [ERC1724Mintable.sol](#erc1724mintablesol)
-  - [ERC1724Burnable.sol](#erc1724burnablesol)
 - [Specification of Utility libraries](#specification-of-utility-libraries)
 - [Appendix](#appendix)
   - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
@@ -937,8 +938,8 @@ There are various types of `zkAsset`s, which are differentiated based on the fla
 
 These flags give rise to the contracts whose properties are summarised in the below table:
 
-| Contract | canAdjustSupply | canConvert | Ownable 
-| --- | --- | --- | --- | --- |  
+| Contract | canAdjustSupply | canConvert | Ownable |
+| --- | --- | --- | --- |  
 | ZkAsset | N | P | N |
 | ZkAssetAdjustable | Y | P | N |
 | ZkAssetMintable | Y | P | Y |
@@ -948,7 +949,8 @@ These flags give rise to the contracts whose properties are summarised in the be
 where `Y` is yes, `N` no and `P` is possible (it is at the discretion of the instantiator). `ZkAssetMintable` is only able to mint, `ZkAssetBurnable` is only able to burn, whilst `ZkAssetAdjustable` is able to both mint and burn.
 
 
-# AZTEC Verifiers: JoinSplit.sol  
+# Proof verification contracts
+## JoinSplit.sol  
 
 The `JoinSplit` contract validates the AZTEC join-split proof, and performs ECDSA signature validation logic for signatures signed by each note owner.  
 
@@ -981,7 +983,7 @@ The ABI of `bytes data` is the following:
 
 The amount of public 'value' being used in the join-split proof, `kPublic`, is defined as the `kBar` value of the last entry in the `uint[6][] notes` array. This value is traditionally empty (the last note does not have a `kBar` parameter) and the space is re-used to house `kPublic`.
   
-# AZTEC Verifiers: Swap.sol  
+## Swap.sol  
 
 The `Swap` contract validates a zero-knowledge proof that defines an exchange of notes between two counter-parties, an order *maker* and an order *taker*. 
 
@@ -1026,7 +1028,7 @@ The ABI of `bytes data` is the following:
 | 0xa0 + L_notes + L_inputOwners | L_owners | outputOwners | address[] | address of output note owners |  
 | 0xa0 + L_notes + L_inputOwners + L_owners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-# AZTEC Verifiers: Dividend.sol  
+## Dividend.sol  
 
 The `Dividend` proof validates that an AZTEC UTXO note is equal to a public percentage of a second AZTEC UTXO note. This proof is belongs to the `UTILITY` category, as in isolation it does not describe a balancing relationship.  
 
@@ -1066,7 +1068,7 @@ The ABI of `bytes data` is the following:
 | 0xe0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
 | 0xe0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-# AZTEC Verifiers: PublicRange.sol  
+## PublicRange.sol  
 
 The `PublicRange` proof validates in zero-knowledge that the value of one AZTEC note is greater than or equal to, or less than or equal to a public integer. It belongs to the `UTILITY` proof category. 
 
@@ -1097,7 +1099,7 @@ The ABI of `bytes data` is the following:
 | 0xc0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
 | 0xc0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-# AZTEC Verifiers: PrivateRange.sol  
+## PrivateRange.sol  
 
 The `PrivateRange` proof validates in zero-knowledge that the value of one AZTEC note is greater than or less than the value of a second AZTEC note. It belongs to the `UTILITY` proof category as no true balancing relationship is satisfied.
 
@@ -1127,7 +1129,7 @@ The ABI of `bytes data` is the following:
 | 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
 
-# AZTEC Verifiers: Mint.sol  
+## Mint.sol  
 
 The `Mint` contract enables AZTEC asset owners to directly mint notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.mint`.
 
@@ -1163,7 +1165,7 @@ The ABI of `bytes data` is the following:
 | 0xa0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
 | 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
-# AZTEC Verifiers: Burn.sol  
+## Burn.sol  
 
 The `Burn` contract enables AZTEC asset owners to burn notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.burn`.
 
@@ -1182,7 +1184,6 @@ When encoding `bytes proofOutputs`, the following mapping between input `notes` 
 * `proofOutputs[1].outputNotes = [] ` 
 
 i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
-
 
 
 # Specification of Utility libraries  
