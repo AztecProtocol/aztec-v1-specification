@@ -1,35 +1,35 @@
 # AZTEC Protocol 1.0.0 specification  
 
 ## Table of contents  
-1 [Architecture](#architecture)
+- [Architecture](#architecture)
   - [The AZTEC Cryptography Engine](#the-aztec-cryptography-engine)
   - [AZTEC notes and ABI encoding](#abi-encoding-and-aztec-data-types)
-2 [The Note Registry](#the-note-registry)
-3 [ACE, the AZTEC Cryptography Engine](#ace-the-aztec-cryptography-engine)
+- [The Note Registry](#the-note-registry)
+- [ACE, the AZTEC Cryptography Engine](#ace-the-aztec-cryptography-engine)
   - [Validating AZTEC proofs - defining the proof's identifier](#validating-aztec-proofs---defining-the-proofs-identifier)
   - [Enacting confidential transfer instructions - defining the ABI encoding of proofOutputs](#enacting-confidential-transfer-instructions---defining-the-abi-encoding-of-proofoutputs)
   - [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
   - [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
   - [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
-4 [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
+- [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
   - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
-5 [Contract Interactions](#contract-interactions)
+- [Contract Interactions](#contract-interactions)
   - [Zero-knowledge dApp contract interaction, an example flow with bilateral swaps](#zero-knowledge-dapp-contract-interaction-an-example-flow-with-Swaps)
   - [The rationale behind multilateral confidential transactions](#the-rationale-behind-multilateral-confidential-transactions)
-6 [Validating an AZTEC proof](#validating-an-aztec-proof)
-7 [Creating a note registry](#creating-a-note-registry)
+- [Validating an AZTEC proof](#validating-an-aztec-proof)
+- [Creating a note registry](#creating-a-note-registry)
   - [Note Registry Variables](#note-registry-variables)
-8 [Processing a transfer instruction](#processing-a-transfer-instruction)
+- [Processing a transfer instruction](#processing-a-transfer-instruction)
   - [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
-9 [Minting and burning AZTEC notes](#minting-aztec-notes)
+- [Minting and burning AZTEC notes](#minting-aztec-notes)
   - [Minting](#minting)
   - [Burning] (#burning)
-10 [Interacting with ACE: zkAsset](#interacting-with-ace-zkasset)
+- [Interacting with ACE: zkAsset](#interacting-with-ace-zkasset)
   - [Creating a confidential asset](#creating-a-confidential-asset)
   - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
   - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
   - [Permissioning](#permissioning)
-11 [Proof verification contracts] (#proof-verification-contracts)
+- [Proof verification contracts] (#proof-verification-contracts)
   - [JoinSplit.sol](#aztec-verifiers-joinsplitsol)
   - [Swap.sol](#aztec-verifiers-bilateralswapsol)
   - [Dividend.sol](#aztec-verifiers-dividendcomputationsol)
@@ -37,14 +37,14 @@
   - [PrivateRange.sol](#aztec-verifiers-privaterangesol)
   - [Mint.sol](#mintsol)
   - [Burn.sol](#aztec-verifiers-burnsol)
-12 [ZkAsset] (#zkasset)
+- [ZkAsset] (#zkasset)
   - [ERC1724Mintable.sol](#erc1724mintablesol)
   - [ERC1724Burnable.sol](#erc1724burnablesol)
-13. [Specification of Utility libraries](#specification-of-utility-libraries)
-14. [Appendix](#appendix)
+- [Specification of Utility libraries](#specification-of-utility-libraries)
+- [Appendix](#appendix)
   - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
   - [B - Interest streaming via AZTEC notes](#b---interest-streaming-via-aztec-notes)
-15 [Glossary](#glossary)
+- [Glossary](#glossary)
 
 # Architecture  
 
@@ -756,11 +756,14 @@ The note registry manager is inherited by ACE. Its responsibilities include:
 
 An overview of this architecture is provided below:
 
+![Note-registry-architecture-overview](https://github.com/AztecProtocol/specification/blob/master/noteregistryArchitecture.png?raw=true)  
+
 ## Upgradeability functionality
 
 The above system of smart contracts can be used to deploy both non-upgradeable and upgradable `zkAsset`s. Only ownable `ZkAsset`s are able to be upgraded through this upgrade pattern and in the case where there is no owner, the latest note registry behaviour is deployed.
 
 ### Deploying a new non-upgradeble ZkAsset
+
 1. A user deploys a ZkAsset contract, feeding in constructor arguments aceAddress, erc20Address, ERC20_SCALING_FACTOR, canAdjustSupply.
 2. The ZkAsset calls ACE, telling it to instantiate a note registry 
 3. ACE, through the NoteRegistryManager, finds the latest Factory, and tells it to deploy a new Proxy contract, and then to deploy a new Behaviour contract, passing the address of the Proxy contract in its constructor.
@@ -768,13 +771,18 @@ The above system of smart contracts can be used to deploy both non-upgradeable a
 5. The Factory returns the address of the new Behaviour contract, and ACE adds to a mapping from address of ZkAsset to NoteRegistry (polymorphism).
 
 ### Deploying a new upgradeable ZkAsset
+
 (Same steps as for non-upgradeable, except constructor of ZkAsset takes in a unique identifier for a particular note registry version, and ACE uses that information to deploy a specific NoteRegistry.)
 
 ### Deploying a new NoteRegistry version
+
 1. A new Factory.sol is deployed, which has the ability to deploy new NoteRegistries, and can manage transferring ownership from itself to an address it received
 2. The Owner of ACE sends a Tx associating a unique identifier with the address of the new Factory
 
 ### Upgrading a ZkAsset's Noteregistry
+
+![Upgrade-zkAsset-note-registry](https://github.com/AztecProtocol/specification/blob/master/upgradeZkAssetNoteRegistry.png?raw=true)  
+
 1. The Owner of a ZkAsset makes a call to upgrade its NoteRegistry, giving either a specific unique id of a particular factory, or leaving it blank to use the latest factory available.
 2. The ZkAsset calls ACE, telling it to upgrade its NoteRegistry, and passing it a specific version to use if any.
 3. ACE finds the NoteRegistry, fetches its associated Proxy address, and finds the relevant factory to call
