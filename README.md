@@ -11,7 +11,7 @@
   - [ABI encoding for `bytes proofOutputs`](#abi-encoding-for-bytes-proofoutputs)
   - [ABI encoding for `bytes proofOutput = proofOutputs[i]`](#abi-encoding-for-bytes-proofoutput--proofoutputsi)
   - [Cataloguing valid proofs inside ACE](#cataloguing-valid-proofs-inside-ace)
-  - [ACE owner] (#ace-owner)
+  - [ACE owner](#ace-owner)
 - [The key responsibilities of `ACE`](#the-key-responsibilities-of-ace)
   - [Separating proof validation and note registry interactions](#separating-proof-validation-and-note-registry-interactions)
 - [Contract Interactions](#contract-interactions)
@@ -33,14 +33,13 @@
   - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
   - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
   - [Permissioning](#permissioning)
-- [Proof verification contracts] (#proof-verification-contracts)
+- [Proof verification contracts](#proof-verification-contracts)
   - [JoinSplit.sol](#aztec-verifiers-joinsplitsol)
   - [Swap.sol](#aztec-verifiers-bilateralswapsol)
   - [Dividend.sol](#aztec-verifiers-dividendcomputationsol)
   - [PublicRange.sol](#aztec-verifiers-publicrangesol)
   - [PrivateRange.sol](#aztec-verifiers-privaterangesol)
-  - [Mint.sol](#mintsol)
-  - [Burn.sol](#aztec-verifiers-burnsol)
+  - [JoinSplitFluid.sol](#join-split-fluid)
 - [Specification of Utility libraries](#specification-of-utility-libraries)
 - [Appendix](#appendix)
   - [A: Preventing collisions and front-running](#a-preventing-collisions-and-front-running)
@@ -952,7 +951,7 @@ where `Y` is yes, `N` no and `P` is possible (it is at the discretion of the ins
 # Proof verification contracts
 ## JoinSplit.sol  
 
-The `JoinSplit` contract validates the AZTEC join-split proof, and performs ECDSA signature validation logic for signatures signed by each note owner.  
+The `JoinSplit` contract validates the AZTEC join-split proof. It takes a series of inputNotes , to be removed from a note registry, and a series of outputNotes to be added to the note registry. In addition, an integer publicValue can be supplied - this specifies the number of ERC20 tokens to be converted into AZTEC note form or from AZTEC note form.   
 
 The ABI of `bytes data` is the following:  
 
@@ -1129,27 +1128,32 @@ The ABI of `bytes data` is the following:
 | 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
 
 
-## Mint.sol  
+## JoinSplitFluid.sol  
 
-The `Mint` contract enables AZTEC asset owners to directly mint notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.mint`.
+The JoinSplitFluid contract enables proofs to be validated for the direct minting or burning of AZTEC notes, if `Registry.adjustSupply = true`. 
 
-A `Mint` proof has 3 inputs: an AZTEC UTXO note that describes the existing total value that has been minted into this registry, `totalMinted`, an AZTEC UTXO note that describes the new value of `totalMinted`, and a vector of AZTEC UTXO notes that are to be minted.  
+`Mint` and `burn` proofs are both special cases of the `joinSplit` proof - they are the `joinSplit` proof but they have a restricted, specified set of inputs. This validator contract is used to validate both `mint` and `burn` proofs. 
 
-It is important to keep track of the total amount of minted value as this may be neccessary for accounting purposes, or an audit. `totalMinted` is represented by an AZTEC note, i.e. only the registry owner must know the value of this note.  
+In the mint proof, notes are being directly created and added to a note registry, whilst in the burn proof notes are being removed from a note registry. In terms of notes, the joinSplitFluid validator takes three inputs:
+- `currentCounterNote` - note that describes the existing total minted/burned value in this note registry
+- `newCounterNote` - note that describes the new total minted/burned value in this note registry once the proof has been validated and the results enacted
+- `minted/burned notes` - the notes that are to be minted and created in the note registry, or burned and removed from the note registry
 
-The ABI-encoding of `bytes data` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
+The minted/burned notes are the notes being added or removed from the note registry. The purpose of the counter notes is to keep track of the total value that has been minted or burned in this note registry - this informatiom may be for accounting purposes, or an audit. 
 
-When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
+It is important to note that for a given note registry, only the registry owner can call `ACE.mint` or `ACE.burn`. Only the registry owner must know the value of the total notes - hashes of these notes are represented by the registry variables `confidentialTotalMinted` and `confidentialTotalBurned`.
 
-* `proofOutputs.length = 2`  
-* `proofOutputs[0].inputNotes = [notes[1]]`
-* `proofOutputs[0].outputNotes = [notes[0]]`
-* `proofOutputs[0].publicOwner = address(0)` 
-* `proofOutputs[0].publicValue = 0`
-* `proofOutputs[1].inputNotes = [] ` 
-* `proofOutputs[1].outputNotes = [notes[2], ..., notes[n]]`
+The ABI-encoding of `bytes data` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.
 
-i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
+When encoding bytes proofOutputs, the following mapping between input notes and notes in proofOutputs is used:
+
+- `proofOutputs.length = 2`
+- `proofOutputs[0].inputNotes = [currentCounterNote]`
+- `proofOutputs[0].outputNotes = [newCounterNote]`
+- `proofOutputs[0].publicOwner = address(0)`
+- `proofOutputs[0].publicValue = 0`
+- `proofOutputs[1].inputNotes = []`
+- `proofOutputs[1].outputNotes = [minted/burned notes]`
 
 The ABI of `bytes data` is the following:
 
@@ -1164,26 +1168,6 @@ The ABI of `bytes data` is the following:
 | 0xa0 + L_notes | L_inputOwners | inputOwners | address[] | address of input note owners |  
 | 0xa0 + L_notes + L_inputOwners | L_outputOwners | outputOwners | address[] | address of output note owners |  
 | 0xa0 + L_notes + L_inputOwers + L_outputOwners | L_metaData | notemetaData | bytes[] | note metaData, used for event broadcasts |  
-
-## Burn.sol  
-
-The `Burn` contract enables AZTEC asset owners to burn notes, if `Registry.adjustSupply = true`. For a given registry, only the registry owner can call `ACE.burn`.
-
-The `Burn` contract functions in an identical manner to the `Mint` contract. The only difference is that `totalBurned` is tracked instead of `totalMinted`.  
-
-The ABI-encoding of `bytes data` is identical to that of an AZTEC `JoinSplit` transaction. There is the added restriction that `m = 1` and `n >= 2`.  
-
-When encoding `bytes proofOutputs`, the following mapping between input `notes` and notes in `proofOutputs` is used:
-
-* `proofOutputs.length = 2`  
-* `proofOutputs[0].inputNotes = [notes[1]]`
-* `proofOutputs[0].outputNotes = [notes[0]]`
-* `proofOutputs[0].publicOwner = address(0)` 
-* `proofOutputs[0].publicValue = 0`
-* `proofOutputs[1].inputNotes = [notes[2], ..., notes[n]]`
-* `proofOutputs[1].outputNotes = [] ` 
-
-i.e. `note[0]` is the new `totalMinted` note, whose value is equal to that of `note[1]`, the old `totalMinted` note, plus `[notes[2], ..., notes[n]]`, the newly minted notes.
 
 
 # Specification of Utility libraries  
@@ -1213,6 +1197,11 @@ This method will extract the constituent members of an AZTEC ABI-encoded note. S
 ### `NoteUtils.getNoteType(bytes memory note) internal pure returns (uint256 noteType)`  
 
 Extracting the 'type' of a note is provided as a separate method, as this is a rare requirement and its including inside `NoteUtils.extractNote` would bloat the number of stack variables required by the method.
+
+There are in addition the following custom utilities libraries:
+- ProofUtils.sol
+- LibEIP712.sol
+- VersioningUtils.sol
 
 # Appendix 
 ## A: Preventing collisions and front-running  
