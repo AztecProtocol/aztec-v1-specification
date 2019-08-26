@@ -368,15 +368,15 @@ Transaction #1
 3. return `bytes proofOutputs` to `ACE`, revert on failure  
 4. return `bytes proofOutputs` to caller, log valid proof if category != `UTILITY`, revert on failure  
 
-![user-to-registry](https://github.com/CreditMint/wiki/blob/master/userToRegistry2.png?raw=true)
+![user-to-registry](https://i.imgur.com/V0gE6p3.jpg)
 
 Transaction #1  
 
 1. `ACE.updateNoteRegistry(uint24 _proof, bytes proofOutput, address sender)`  
 2. `NoteRegistry.validateProofByHash(uint24 _proof, bytes proofOutput, address sender)` (revert on failure)
-3a. (if `proofOutput.publicValue > 0`) `ERC20.transfer(proofOutput.publicOwner, uint256(proofOutput.publicValue))` (revert on failure)
-3b. (if `proofOutput.publicValue < 0`) `ERC20.transferFrom(proofOutput.publicOwner, this, uint256(-proofOutput.publicValue))` (revert on failure)  
-4. NoteRegistry: (revert on failure)  
+3. return `address publicOwner, uint256 transferValue, int256 publicValue` to ACE, if `int256 publicValue` is non-zero, `ACE.transferPublicTokens(address _publicOwner, uint256 _transferValue, int256 _publicValue, bytes32 _proofHash)` (revert on failure)
+4a. (if `proofOutput.publicValue > 0`) `ERC20.transfer(proofOutput.publicOwner, uint256(proofOutput.publicValue))` (revert on failure)
+4b. (if `proofOutput.publicValue < 0`) `ERC20.transferFrom(proofOutput.publicOwner, this, uint256(-proofOutput.publicValue))` (revert on failure)  
 5. ACE: (revert on failure)  
 
 ## Zero-knowledge dApp contract interaction, an example flow with bilateral swaps  
@@ -516,6 +516,14 @@ Total number of tokens supplemented to the ACE, as a result of tokens being tran
 ## Smart contract implementation
 
 The note registry functionality is enabled by a suite of smart contracts. This is principally to enable upgradeability and given that ACE is immutable, the decision was taken to break the note registries out into their own upgradeable modules.
+
+Despite being encapsulated inside of ACE, note registries are owned by ZkAssets. The only entities which should be allowed to upgrade the note registry associated to a particular ZkAsset is its owner.
+
+The implementation of all behaviour which affects the state of all note registries should be controlled and vetted by the owner of ACE, and ZkAsset owners should not be able to upgrade to arbitrary implementations.
+
+The upgrade pattern, or any individual upgrade itself, should not compromise the hard link between a ZkAsset and its note registry (i.e. no non-authorised contract or account should be able to affect the state of the note registry through an upgrade or because note registries are upgradeable).
+
+The data stored in these registries is obviously very sensitive, and valuable. Upgrades should be rare, backwards compatible, and no upgrade should result in funds becoming inaccessible, partly or wholly un-spendable, or otherwise compromised.
 
 Of the various upgradeability patterns available, the unstructured storage proxy pattern developed by Open Zeppelin is used. The foundation of this pattern is to seperate the storage of the note registry, which defines the set of valid notes, from the logic, behaviour and methods of the note registry. There are four base contracts involved in this implementation: `Behaviour.sol`, `AdminUpgradeabilityProxy.sol`, `Factory.sol` and `NoteRegistryManager.sol`. 
 
@@ -768,29 +776,25 @@ The above system of smart contracts can be used to deploy both non-upgradeable a
 2. The ZkAsset calls ACE, telling it to instantiate a note registry 
 3. ACE, through the NoteRegistryManager, finds the latest Factory, and tells it to deploy a new Proxy contract, and then to deploy a new Behaviour contract, passing the address of the Proxy contract in its constructor.
 4. Once deployed, the Factory transfers ownership of the Behaviour to ACE
-5. The Factory returns the address of the new Behaviour contract, and ACE adds to a mapping from address of ZkAsset to NoteRegistry (polymorphism).
-
-### Deploying a new upgradeable ZkAsset
-
-(Same steps as for non-upgradeable, except constructor of ZkAsset takes in a unique identifier for a particular note registry version, and ACE uses that information to deploy a specific NoteRegistry.)
+5. The Factory returns the address of the new Behaviour contract, and ACE adds to a mapping from address of ZkAsset to NoteRegistry.
 
 ### Deploying a new NoteRegistry version
 
-1. A new Factory.sol is deployed, which has the ability to deploy new NoteRegistries, and can manage transferring ownership from itself to an address it received
+1. A new Factory.sol is deployed, which has the ability to deploy new NoteRegistryBehaviour contracts, and can manage transferring ownership from itself to an address it received
 2. The Owner of ACE sends a Tx associating a unique identifier with the address of the new Factory
 
 ### Upgrading a ZkAsset's Noteregistry
 
 ![Upgrade-zkAsset-note-registry](https://github.com/AztecProtocol/specification/blob/master/upgradeZkAssetNoteRegistry.png?raw=true)  
 
-1. The Owner of a ZkAsset makes a call to upgrade its NoteRegistry, giving either a specific unique id of a particular factory, or leaving it blank to use the latest factory available.
-2. The ZkAsset calls ACE, telling it to upgrade its NoteRegistry, and passing it a specific version to use if any.
+1. The Owner of a ZkAsset makes a call to upgrade its NoteRegistry, giving a specific unique id of a particular factory.
+2. The ZkAsset calls ACE, telling it to upgrade its NoteRegistry, and passing it a specific version to use.
 3. ACE finds the NoteRegistry, fetches its associated Proxy address, and finds the relevant factory to call
 4. ACE tells the factory to deploy a new Behaviour, passing in the Proxy address it received.
 5. The factory deploys the new Behaviour contract
 6. Once deployed, the factory transfers ownership to ACE
-7. The address of the deployed Behaviour is sent back to ACE, which updates its mapping from ZkAsset to NoteRegistry address,
-8. ACE tells the old Behaviour to abdicate control over the Proxy contract in favour of the new Behaviour
+7. The address of the deployed Behaviour is sent back to ACE,
+8. ACE tells the old Factory to abdicate control over the Proxy contract in favour of the new Factory
 
 # Processing a transfer instruction  
 
