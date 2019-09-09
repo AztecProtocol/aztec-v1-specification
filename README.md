@@ -934,6 +934,84 @@ This interface is designed to facilitate stealth addresses. For a stealth addres
 
 For other uses, such as a smart contract or a non-stealth address, a direct transaction sent by the correct `msg.sender` is possible by sending a null signature.
 
+### Granting note view key access
+AZTEC notes contain a `metaData` field, with a specification as outlined in the note ABI discussion. One of the principal uses of this data field, is to store encrypted viewing keys - to allow note view access to be granted to third parties. The `metaData` of a note is not stored in storage, rather it is emitted as an event along with the successful creation of a note:
+
+```
+emit CreateNote(noteOwner, noteHash, metadata);
+```
+
+It may be desirable to grant note view key access to parties, beyond those for which an encrypted viewing key was initially provided when the note was created. To facilitate this, the `ZkAssetBase.sol` has an `updateNoteMetaData()` method:
+
+```
+/**
+* @dev Update the metadata of a note that already exists in storage. 
+* @param noteHash - hash of a note, used as a unique identifier for the note
+* @param metaData - metadata to update the note with
+*/
+function updateNoteMetaData(bytes32 noteHash, bytes memory metaData) public {
+    // Get the note from this assets registry
+    ( uint8 status, , , address noteOwner ) = ace.getNote(address(this), noteHash);
+
+    bytes32 addressID = keccak256(abi.encodePacked(msg.sender, noteHash));
+    require(
+        (noteAccess[addressID] >= metaDataTimeLog[noteHash] || noteOwner == msg.sender) && status == 1,
+        'caller does not have permission to update metaData'
+    );
+
+    // Approve the addresses in the note metaData
+    approveAddresses(metaData, noteHash);
+
+    // Set the metaDataTimeLog to the latest block time
+    setMetaDataTimeLog(noteHash);
+
+    emit UpdateNoteMetaData(noteOwner, noteHash, metaData);
+}
+```
+
+The purpose of this method is to ultimately emit a new event `UpdateNoteMetaData(noteOwner, noteHash, metaData)` with updated `metaData`.The `metaData` is the updated `metaData` which contains the IES encrypted  viewing keys for all parties that are to be granted note view access. 
+
+#### Permissioning
+The permissioning of this function is of critical importance - as being able to call this function allows note view access to be given to an arbitrary address. To this end, there is a `require()` statement which enforces that one of the two valid groups of users are calling this function. It will revert if not.
+
+The first category of permissioned caller is the `noteOwner`. A note owner should have complete agency over to whom they grant view key access to their note. 
+
+The second category of permissioned callers are those Ethereum addresses that are being granted view key access in the `metaData`. These addresses are explicitly  stated in the `approvedAddresses` section of `metaData`. 
+
+To enact this check, an `addressID` is first calculated - the `keccak256` hash of `msg.sender` and the hash of the note in question. We then make use of the `noteAccess`  mapping declared in the `ZkAsset`:
+```
+mapping(bytes32 => uint256) public noteAccess;
+```
+
+This is a mapping of `addressIDs` to a `uint256` , where the `uint256` is the `block.timestamp` of the block in which the particular address was originally granted approval via `approveAddresses()`.
+
+We then compare `noteAccess[addressID]` to the value stored in `metaDataTimeLog[noteHash]`. `metaDataTimeLog` is a second mapping of the form:
+
+```
+mapping(bytes32 => uint256) public metaDataTimeLog;
+```
+
+It is a mapping of  `noteHash` to the `block.timestamp` when the method `setMetaDataTimeLog()` was last called. This mapping is used to keep track of when the metaData for a particular note was last updated
+
+By checking that `noteAccess[addressID] >= metaDataTimeLog[noteHash]` we satisfy two conditions. Firstly, that `msg.sender` is an address which has been previously approved view access in the `metaData` of a note. Secondly, that `msg.sender` still has view access to a note and has not since been revoked (by metaData being updated and not including this Ethereum address as an approved address).
+
+### setProofs()
+It should be noted that ZkAssets which are ownable and inherit from the `ZkAssetOwnable.sol` contract have a concept of 'supporting proofs'. The owner is able to choose which proofs the `ZkAsset` supports and can interact with. 
+
+This is achieved through the `setProofs()` function, restricted to `onlyOwner`:
+```
+function setProofs(
+    uint8 _epoch,
+    uint256 _proofs
+) external onlyOwner {
+    proofs[_epoch] = _proofs;
+}
+```
+
+In order for a `ZkAsset` to be able to listen to and interact with a particular proof, it must be first registered with this function. 
+
+By default, all `ZkAssetOwnable` contracts have the basic unilateral transfer `joinSplit` proof enabled in their constructor. 
+
 ## Types of ZkAssets
 There are various types of `zkAsset`s, which are differentiated based on the flags `canAdjustSupply`, `canConvert` and whether or not the asset is ownable. 
 
