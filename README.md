@@ -21,8 +21,9 @@
 - [Note registry implementation](#note-registry-implementation)
   - [Creating a note registry](#creating-a-note-registry)
   - [Note Registry Variables](#note-registry-variables)
-  - [Smart contract implementation](#smart-contract-implementation)
-  - [Upgradeability functionality](#upgradeability-functionality)
+  - [Implementation and upgradeability](#implementation-and-upgradeability)
+  - [How an upgrade works](#how-an-upgrade-works)
+  - [Current note registry versions](#current-note-registry-versions)
 - [Processing a transfer instruction](#processing-a-transfer-instruction)
   - [A note on ERC20 token transfers](#a-note-on-erc20-token-transfers)
 - [Minting AZTEC notes](#minting-aztec-notes)
@@ -1282,7 +1283,7 @@ AccountRegistry.registerAZTECExtension(
 )
 ```
 
-The `linkedPublicKey` is an x byte long public key, which will later be used to IES encrypt the user's viewing key - this  encrypted viewing key will then be placed into the user's note `metaData` for easy decryption of the note. 
+The `linkedPublicKey` is a 32 byte long public key, which will later be used to IES encrypt the user's viewing key - this  encrypted viewing key will then be placed into the user's note `metaData` for easy decryption of the note. 
 
 The result of calling this method is principally that two mappings are set:
 
@@ -1295,9 +1296,7 @@ accountMapping[_account] = _linkedPublicKey;
 userToAZTECAccountMapping[_account] = _AZTECaddress;
 ```
 
-The `accountMapping` maps the user's Ethereum address to their `linkedPublicKey` and the `userToAZECAccountMapping` maps their Ethereum address to their AZTEC Ethereum address. This is used to...
-
-
+The `accountMapping` maps the user's Ethereum address to their `linkedPublicKey` and the `userToAZECAccountMapping` maps their Ethereum address to their AZTEC Ethereum address.
 
 ### Meta-transactions via the GSN
 To abstract gas away from users, the SDK makes use of the gas station network and it's relayer system. The GSN enabled `recipient` contract in the AZTEC ecosystem is the `AccountRegistry.sol`. 
@@ -1314,7 +1313,7 @@ The GSN works by the the gas payer, in this case the AZTEC `AccountRegistry` con
 
 It does this through the method `acceptRelayedCall()`. This takes `approvalData` as a argument which is then decoded to generate two parameters: `maxTimestamp` and `signature`. 
 
-`maxTimestamp` represents the.....
+`maxTimestamp` represents the maximum length of time for which a transaction to be sent via the GSN is valid to have it's gas paid for.
 
 `signature` is a signature produced using an AZTEC server private key. All transactions sent via the SDK, which qualify for the AZTEC meta-transactions, are signed by this AZTEC private key. This provides proof that the transaction is authorised to have it's gas paid for and provides a permissioning mechanism whereby malicious draining of funds from the AZTEC `RelayHub` account can be prevented. 
 
