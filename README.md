@@ -34,6 +34,8 @@
   - [Issuing a confidential transaction: confidentialTransfer](#issuing-a-confidential-transaction-confidentialtransfer)
   - [Issuing delegated confidential transactions: confidentialTransferFrom](#issuing-delegated-confidential-transactions-confidentialtransferfrom)
   - [Permissioning](#permissioning)
+  - [Types of ZkAasset](#types-of-zkasset0
+- [AccountRegistry.sol](#accountRegistry.sol)
 - [Proof verification contracts](#proof-verification-contracts)
   - [JoinSplit.sol](#aztec-verifiers-joinsplitsol)
   - [Swap.sol](#aztec-verifiers-bilateralswapsol)
