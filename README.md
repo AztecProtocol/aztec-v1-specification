@@ -513,17 +513,21 @@ Flag determining whether the note registry has public to private, and vice versa
 
 Total number of tokens supplemented to the ACE, as a result of tokens being transferred when conversion of minted notes to public value was attempted and there were not sufficient tokens held by ACE.
 
-## Smart contract implementation
+## Implementation and upgradeability functionality
 
-The note registry functionality is enabled by a suite of smart contracts. This is principally to enable upgradeability and given that ACE is immutable, the decision was taken to break the note registries out into their own upgradeable modules.
+In order to guarantee the correct implementation of any operation affecting the state of note registries within the AZTEC ecosystem, all of the data and behaviour relating to note registries is encapsulated in the AZTEC Cryptography Engine.
 
-Despite being encapsulated inside of ACE, note registries are owned by ZkAssets. The only entities which should be allowed to upgrade the note registry associated to a particular ZkAsset is its owner.
+However, it is likely that the behaviour of note registries will need to be modified in the future in order to accomodate potential functionality improvements such as added support for new types of linked public tokens, mixers etc. To allow this to happen without requiring a hard fork, note registries have been made upgradeable and broken out from the immutable ACE contract into their own upgradeable modules.
 
-The implementation of all behaviour which affects the state of all note registries should be controlled and vetted by the owner of ACE, and ZkAsset owners should not be able to upgrade to arbitrary implementations.
+Various considerations were taken into account when designing this architecture. 
 
-The upgrade pattern, or any individual upgrade itself, should not compromise the hard link between a ZkAsset and its note registry (i.e. no non-authorised contract or account should be able to affect the state of the note registry through an upgrade or because note registries are upgradeable).
+Firstly, the data stored in these registries is obviously very sensitive, and valuable. Upgrades should be rare, backwards compatible, and no upgrade should result in funds becoming inaccessible, partly or wholly un-spendable, or otherwise compromised.
 
-The data stored in these registries is obviously very sensitive, and valuable. Upgrades should be rare, backwards compatible, and no upgrade should result in funds becoming inaccessible, partly or wholly un-spendable, or otherwise compromised.
+In addition, despite being encapsulated inside of ACE, note registries are owned by ZkAssets. These asset owners should have complete agency over their implementation and so the only entities which should be allowed to upgrade the note registry associated to a particular ZkAsset is its owner. 
+
+The implementation of all behaviour which affects the state of all note registries should also be controlled and vetted by the owner of ACE, and ZkAsset owners should not be able to upgrade to arbitrary implementations. This is to protect the integrity of the registries. 
+
+The upgrade pattern, or any individual upgrade itself, should also not compromise the hard link between a ZkAsset and its note registry (i.e. no non-authorised contract or account should be able to affect the state of the note registry through an upgrade or because note registries are upgradeable).
 
 Of the various upgradeability patterns available, the unstructured storage proxy pattern developed by Open Zeppelin is used. The foundation of this pattern is to seperate the storage of the note registry, which defines the set of valid notes, from the logic, behaviour and methods of the note registry. There are four base contracts involved in this implementation: `Behaviour.sol`, `AdminUpgradeabilityProxy.sol`, `Factory.sol` and `NoteRegistryManager.sol`. 
 
@@ -766,7 +770,7 @@ An overview of this architecture is provided below:
 
 ![Note-registry-architecture-overview](https://github.com/AztecProtocol/specification/blob/master/noteregistryArchitecture.png?raw=true)  
 
-## Upgradeability functionality
+## How an upgrade works
 
 The above system of smart contracts can be used to deploy both non-upgradeable and upgradable `zkAsset`s. Only ownable `ZkAsset`s are able to be upgraded through this upgrade pattern and in the case where there is no owner, the latest note registry behaviour is deployed.
 
@@ -795,6 +799,90 @@ The above system of smart contracts can be used to deploy both non-upgradeable a
 6. Once deployed, the factory transfers ownership to ACE
 7. The address of the deployed Behaviour is sent back to ACE,
 8. ACE tells the old Factory to abdicate control over the Proxy contract in favour of the new Factory
+
+## Controlled release
+In order to build liquidity in particular assets when AZTEC launches, a slow release period feature has been added in which some assets will be available whilst others will be available after this fixed slow release period ends. The relevant note registry epochs are 2 and 3, implemented in behaviour contracts `Behaviour201911.sol` and `Behaviour201912.sol`.
+
+Assets that have a note registry version of epoch 2 (Behaviour201911) will be **unavailable** during the slow release period:
+
+```
+contract Behaviour201911 is Behaviour201907 {
+    uint256 public constant slowReleaseEnd = 1580515200;
+    bool public isAvailableDuringSlowRelease = false;
+
+    modifier onlyIfAvailable() {
+        // Not sensitive to small differences in time
+        require(isAvailableDuringSlowRelease == true || slowReleaseEnd < block.timestamp,
+        "AZTEC is in burn-in period, and this asset is not available");
+        _;
+    }
+
+    function makeAvailable() public onlyOwner {
+        require(isAvailableDuringSlowRelease == false, "asset is already available");
+        isAvailableDuringSlowRelease = true;
+    }
+
+    function updateNoteRegistry(
+        uint24 _proof,
+        bytes memory _proofOutput
+    ) public onlyOwner onlyIfAvailable returns (
+        address publicOwner,
+        uint256 transferValue,
+        int256 publicValue
+    ) {
+        (
+            publicOwner,
+            transferValue,
+            publicValue
+        ) = super.updateNoteRegistry(_proof, _proofOutput);
+    }
+}
+```
+
+The slow release period length is defined by the variable `slowReleaseEnd`, after which the asset will automatically become available. The restricting of availability up to this point is defined through the use of the function modifier `onlyIfAvailable()` which modifiers the behaviour of the key `updateNoteRegistry()` function. 
+
+It is also possible for the `ZkAsset` owner to make the asset available earlier than the end of the burn-in period, by calling the `makeAvailable()` method.
+
+
+
+Assets that have a note registry version of epoch 3 (Behaviour201912) will be **available** during the slow release period. They have no concept of the `onlyIfAvailable()` modifier:
+
+```
+contract Behaviour201912 is Behaviour201911 {
+    // redefining to always pass
+    modifier onlyIfAvailable() {
+        _;
+    }
+
+    function makeAvailable() public onlyOwner {}
+
+    function updateNoteRegistry(
+        uint24 _proof,
+        bytes memory _proofOutput
+    ) public onlyOwner returns (
+        address publicOwner,
+        uint256 transferValue,
+        int256 publicValue
+    ) {
+        (
+            publicOwner,
+            transferValue,
+            publicValue
+        ) = super.updateNoteRegistry(_proof, _proofOutput);
+    }
+}
+```
+
+## Current note registry versions
+
+There are currently three versions/epochs of the note registry behaviour contract. Each inherits from the previous contract epoch and adds additional functionality. This is summarised below: 
+
+| Epoch | Contract            | Functionality                                        |
+|-------|---------------------|------------------------------------------------------|
+| 1     | Behaviour201907.sol | Base note registry behaviour implementation          |
+| 2     | Behaviour201911.sol | Asset that is unavailable during slow release period |
+| 3     | Behaviour201912.sol | Asset that is available during slow release period‌  |
+
 
 # Processing a transfer instruction  
 
@@ -919,20 +1007,96 @@ The `confidentialTransfer` method takes a set of EIP712 ECDSA `signatures` over 
 
 However, this method is not suitable for a delegated transfer calling `confidentialTransferFrom()`. In this case, the note 'owners' may be smart contracts and so unable to create digitial signatures. Therefore, for `confidentialTransferFrom()` to be used, a permission granting function `confidentialApprove()` must be called on every input note that is consumed.
 
+There are two flavours of this permissioning granting function: `confidentialApprove()` and `approveProof()`. The first allows permission to be granted for an individual note, the second allows permission to be granted for a particular proof and so in a single call potentially approve multiple notes for spending.
+
 
 ### confidentialApprove  
 
 The `confidentialApprove(bytes32 _noteHash, address _spender, bool _status, bytes memory _signature)` method gives the `_spender` address permission to use an AZTEC note, whose hash is defined by `_noteHash`, to be used in a zero-knowledge proof.  
 
-The `_status` boolean defines whether permission is being given or revoked.  
+The method has the following interface:
 
-The `_signature` variable defines an ECDSA signature over an EIP712 message. This signature is signed by the `address owner` of the AZTEC note being approved.  
+```
+/**
+* @dev Note owner approving a third party, another address, to spend the note on
+* owner's behalf. This is necessary to allow the confidentialTransferFrom() method
+* to be called
+*
+* @param _noteHash - keccak256 hash of the note coordinates (gamma and sigma)
+* @param _spender - address being approved to spend the note
+* @param _spenderApproval - defines whether the _spender address is being approved to spend the
+* note, or if permission is being revoked. True if approved, false if not approved
+* @param _signature - ECDSA signature from the note owner that validates the
+* confidentialApprove() instruction
+*/
+function confidentialApprove(
+    bytes32 _noteHash,
+    address _spender,
+    bool _spenderApproval,
+    bytes memory _signature
+) public {}
+```
 
-If `_signature = bytes(0x00)`, then `msg.sender` is expected to be the `address owner` of the AZTEC note being approved.  
+The `_signature` is an ECDSA signature over an EIP712 message. This signature is signed by the `noteOwner` of the AZTEC note being approved.  If `_signature = bytes(0x00)`, then `msg.sender` is expected to be the `noteOwner` of the AZTEC note being approved.  
 
-This interface is designed to facilitate stealth addresses. For a stealth address, it is unlikely that the address will have any Ethereum funds to pay for gas costs, and a meta-transaction style transaction is required. In this situation, `msg.sender` will not map to the owner of the note and so an ECDSA signatue is used.  
+The method validates the signature and, if this passes, updates a mapping of `noteHash` => `_spender` => `_spenderApproval`:
+
+```
+mapping(bytes32 => mapping(address => bool)) public confidentialApproved;
+```
+
+This mapping will later be checked when an attempt is made to spend the note. 
+
+It should be noted that the `confidentialApprove()` interface is designed to facilitate stealth addresses. For a stealth address, it is unlikely that the address will have any Ethereum funds to pay for gas costs, and a meta-transaction style transaction is required. In this situation, `msg.sender` will not map to the owner of the note and so an ECDSA signatue is used.  
 
 For other uses, such as a smart contract or a non-stealth address, a direct transaction sent by the correct `msg.sender` is possible by sending a null signature.
+
+### approveProof()
+This allows spending permission to be granted to multiple notes in a single atomic function call. This is useful for delegating note control over `n` notes in a single transaction, rather than having to make `n` `confidentialApprove()` calls.
+
+The method has the following interface:
+
+```
+/**
+ * @dev Note owner can approve a third party address, such as a smart contract,
+ * to spend a proof on their behalf. This allows a batch approval of notes
+ * to be performed, rather than individually for each note via confidentialApprove().
+ *
+ * @param _proofId - id of proof to be approved. Needs to be a balanced proof.
+ * @param _proofOutputs - data of proof
+ * @param _spender - address being approved to spend the notes
+ * @param _proofSignature - ECDSA signature over the proof, approving it to be spent
+ */
+function approveProof(
+    uint24 _proofId,
+    bytes calldata _proofOutputs,
+    address _spender,
+    bool _approval,
+    bytes calldata _proofSignature
+) external {
+```
+
+`_proofSignature` is a signature over the proof generated by the private key of the owner of the notes in question. The method extracts the notes from the `_proofOutputs` object and checks that each note's `noteOwner` matches the address recovered from the `_proofSignature`. 
+
+It then updates the following mapping of `keccak256(proofOutputs)` => `spender` address => `_approval` status:
+
+```
+mapping(bytes32 => mapping(address => bool)) public confidentialApproved;
+```
+
+Later when this proof and associated notes are used in a `confidentialTransferFrom()` transaction, the `confidentialApproved` mapping is queried. Firstly, it is checked if:
+
+```
+confidentialApproved[proofHash][msg.sender] != true
+```
+
+If this is the case then the notes were approved for spending via the `approveProof()` method and the transaction proceeds. If this is not `true`, then for each `inputNote` (notes to be spent) the following is checked:
+
+```
+confidentialApproved[noteHash][msg.sender] == true
+```
+
+
 
 ### Granting note view key access
 AZTEC notes contain a `metaData` field, with a specification as outlined in the note ABI discussion. One of the principal uses of this data field, is to store encrypted viewing keys - to allow note view access to be granted to third parties. The `metaData` of a note is not stored in storage, rather it is emitted as an event along with the successful creation of a note:
@@ -991,7 +1155,7 @@ We then compare `noteAccess[addressID]` to the value stored in `metaDataTimeLog[
 mapping(bytes32 => uint256) public metaDataTimeLog;
 ```
 
-It is a mapping of  `noteHash` to the `block.timestamp` when the method `setMetaDataTimeLog()` was last called. This mapping is used to keep track of when the metaData for a particular note was last updated
+It is a mapping of  `noteHash` to the `block.timestamp` when the method `setMetaDataTimeLog()` was last called. This mapping is used to keep track of when the metaData for a particular note was last updated. 
 
 By checking that `noteAccess[addressID] >= metaDataTimeLog[noteHash]` we satisfy two conditions. Firstly, that `msg.sender` is an address which has been previously approved view access in the `metaData` of a note. Secondly, that `msg.sender` still has view access to a note and has not since been revoked (by metaData being updated and not including this Ethereum address as an approved address).
 
@@ -1029,6 +1193,184 @@ These flags give rise to the contracts whose properties are summarised in the be
 
 where `Y` is yes, `N` no and `P` is possible (it is at the discretion of the instantiator). `ZkAssetMintable` is only able to mint, `ZkAssetBurnable` is only able to burn, whilst `ZkAssetAdjustable` is able to both mint and burn.
 
+
+# AccountRegistry.sol
+The `AccountRegistry` is a key smart contract in the AZTEC ecosystem that enables important implementation/application level features - it is not involved in the zero-knowledge proof systems. 
+
+It enables two features:
+1) User registration with AZTEC's SDK (software development kit)
+2) Gasless meta-transactions via the GSN (gas station network)
+
+The contract has also been made upgradeable, to allow new methods for the above functionality to be added and to allow the contract to evolve and potentially take on additional functionality in the future. The following sections describe the role the `AccountRegistry` contract plays in enabling the above features, as well as the upgrade mechanism it employs.  
+
+The `AccountRegistry.sol` contract has the following interface:
+
+```
+contract IAccountRegistryBehaviour {
+    uint256 public epoch;
+
+    struct AZTECAccount {
+        address account;
+        bytes linkedPublicKey;
+    }
+
+    mapping(address => bytes) public accountMapping;
+    mapping(address => address) public userToAZTECAccountMapping;
+    mapping(bytes32 => bool) public signatureLog;
+
+    function registerAZTECExtension(
+        address _account,
+        address _AZTECaddress,
+        bytes calldata _linkedPublicKey,
+        bytes calldata _spendingPublicKey,
+        bytes calldata _signature
+    ) external;
+
+    function initialize(address _aceAddress, address _trustedGSNSignerAddress) external;
+
+    function confidentialTransferFrom(
+        address _registryOwner,
+        bytes calldata _proofData,
+        bytes32[] calldata _noteHashes,
+        address _spender,
+        bool[] calldata _spenderApprovals,
+        bytes calldata _batchSignature
+    ) external;
+
+    function deposit(
+        address _registryOwner,
+        address _owner,
+        bytes32 _proofHash,
+        bytes calldata _proofData,
+        uint256 _value
+    ) external;
+
+    function publicApprove(address _registryOwner, bytes32 _proofHash, uint256 _value) external;
+
+    event Addresses(address accountAddress, address signerAddress);
+    
+    event RegisterExtension(
+        address indexed account,
+        bytes linkedPublicKey,
+        bytes spendingPublicKey 
+    );
+}
+
+```
+## Feature enabling role
+### User registration with the SDK
+The AZTEC SDK is a high level library with a UI component which abstracts away many of the complexities involved in using AZTEC - such as note and viewing key management. In order to first use the SDK, users need to register with it the Ethereum address that they will use to interact with AZTEC.  
+
+This is performed by calling 
+
+```
+/**
+ * @dev Registers a linkedPublicKey to an Ethereum address, if a valid signature is provided or the
+ * sender is the ethereum address in question
+ * @param _account - address to which the linkedPublicKey is being registered
+ * @param _AZTECaddress - 
+ * @param _linkedPublicKey - an additional public key which the sender wishes to link to the _account
+ * @param _spendingPublicKey - the Ethereum public key associated with the Ethereum address 
+ * @param _signature - an EIP712 compatible signature of the account & linkedPublicKey
+ */
+AccountRegistry.registerAZTECExtension(
+        address _account,
+        address _AZTECaddress,
+        bytes memory _linkedPublicKey,
+        bytes memory _spendingPublicKey,
+        bytes memory _signature
+)
+```
+
+The `linkedPublicKey` is an x byte long public key, which will later be used to IES encrypt the user's viewing key - this  encrypted viewing key will then be placed into the user's note `metaData` for easy decryption of the note. 
+
+The result of calling this method is principally that two mappings are set:
+
+```
+mapping(address => bytes) public accountMapping;
+mapping(address => address) public userToAZTECAccountMapping;
+
+
+accountMapping[_account] = _linkedPublicKey;
+userToAZTECAccountMapping[_account] = _AZTECaddress;
+```
+
+The `accountMapping` maps the user's Ethereum address to their `linkedPublicKey` and the `userToAZECAccountMapping` maps their Ethereum address to their AZTEC Ethereum address. This is used to...
+
+
+
+### Meta-transactions via the GSN
+To abstract gas away from users, the SDK makes use of the gas station network and it's relayer system. The GSN enabled `recipient` contract in the AZTEC ecosystem is the `AccountRegistry.sol`. 
+
+`AccountRegistry.sol` obtains it's GSN enabled behaviour by inheriting from two GSN related contracts:
+
+#### 1) `GSNRecipient.sol` 
+This is the base GSN recipient contract which enables standard GSN behaviour such as: keeping track of the original transaction sender via `_msgSender()` and storing the `RelayHub` address.
+
+#### 2) `GSNRecipientTimestampSignature.sol` 
+This is a custom AZTEC bouncer gsn contract whose purpose is to restrict/provide permissioning as to which Ethereum accounts are allowed to make use of AZTEC meta-transactions.
+
+The GSN works by the the gas payer, in this case the AZTEC `AccountRegistry` contract, maintaining a deposit of Ether on the GSN `RelayHub` contract. This balance decreases over time as user's transactions are processed and paid for. In order to prevent spam and the malicious draining of funds, the `GSNRecipientTimestampSignature.sol` exists to provide permissioning as to those users that are allowed to have free transactions. 
+
+It does this through the method `acceptRelayedCall()`. This takes `approvalData` as a argument which is then decoded to generate two parameters: `maxTimestamp` and `signature`. 
+
+`maxTimestamp` represents the.....
+
+`signature` is a signature produced using an AZTEC server private key. All transactions sent via the SDK, which qualify for the AZTEC meta-transactions, are signed by this AZTEC private key. This provides proof that the transaction is authorised to have it's gas paid for and provides a permissioning mechanism whereby malicious draining of funds from the AZTEC `RelayHub` account can be prevented. 
+
+## Upgradeability pattern
+To facilitate the potential future addition of other methods whereby AZTEC users can be registered and possible contract purpose expansion, `AccountRegistry.sol` is upgradeable. 
+
+The requirements of the upgrade pattern are: 
+- state (i.e. the account mappings) must be preserved between upgrades
+- upgrades must be backwards compatible
+- only the contract owner should be able to initiate upgrades
+- any funds stored by the contract must not become locked as a result of an upgrade 
+
+To achieve this the OpenZeppelin unstructured storage proxy pattern was chosen and implemented. This pattern splits the `AccountRegistry` contract out into two - an immutable proxy contract which preserves state and mutable behaviour contracts which define the various methods. 
+
+Note that the pattern used to make the `AccountRegistry` upgradeable is the same as that used to make the note registries upgradable. There are some implementation differences however, principally that we do not make use of factory contracts to deploy the `AccountRegistry` behaviour contracts. 
+
+### Behaviour contracts - `Behaviour.sol`
+This is the contract that defines the method and logic of the `AccountRegistry` and is the upgradeable part of the system. 
+
+To deploy an 'upgraded AccountRegistry', a new `Behaviour` contract would be deployed. This is done manually, unlike in the upgradeability model for note registries. Manual deployment was chosen to make the upgrade simple as simple as possible, and given that there will only be one `AccountRegistry` contract at once the need for factory deploys was reduced. 
+
+It should be noted that in this pattern, all future versions of the `Behaviour` contracts must inherit the storage variables declared by their parents. 
+
+### Storage/proxy contract - `AdminUpgradeabilityProxy.sol` 
+The storage contract is referred to as the Proxy. It has several key responsibilities:
+- contain the storage variables which define the set of unspent notes
+- implements the delegation of calls to behaviour contracts via `delegatecall()`. In this way,  behaviour contract defined functionality can be executed in the context of the calling proxy storage contract - allowing behaviour methods to access and interact with notes. 
+- upgrade behaviour, by pointing calls to the addresses of newly deployed behaviour contracts 
+
+In order to facilitate the process of upgrading the behaviour contract to a new instance, there is also an `AccountRegistryManager.sol` contract.
+
+### `AccountRegistryManager.sol`
+This contract's purpose is to manage the process of performing upgrades and keeping track of the behaviour instances. By codifying the upgrade process in a smart contract, it reduces the likelihood of human error when performing an upgrade. 
+
+The address of the proxy contract is defined on the `AccountRegistryManager.sol` via the state variable:
+
+```
+address payable public proxyAddress;
+```
+
+### Upgrade flow
+The upgrade flow overall is similar to, but simpler than, that of the note registry upgrade flow
+
+#### Deploying the upgradeable account registry
+1)Deploy the initial, first `Behaviour.sol` contract
+2)Deploy the `AccountRegistryManager.sol` contract - when the constructor is called it will deploy the proxy contract and link the initial `Behaviour.sol` contract to it
+
+#### Upgrading the account registry
+1) Deploy the new `Behaviour.sol` contract
+2) Call `upgradeAccountRegistry()` on the `AccountRegistryManager.sol`, passing in the address of the new behaviour contract as a parameter. 
+
+
+It should be noted that the `AccountRegistryManager.sol` inherits from `Ownable.sol`. This allows the owner of the contract to be set and the upgrade mechanism to then be protected by `onlyOwner` modifiers - preventing unauthorised upgrades. 
+
+### Versioning system 
+The behaviour contracts need a versioning system in place in order to keep track of the different behaviours. A simple scheme is in place based on the date on which the contract was created. `Behaviour` contracts are given a unique ID according to the creation date in the form of: YYYYMMDD
 
 # Proof verification contracts
 ## JoinSplit.sol  
@@ -1254,11 +1596,19 @@ The ABI of `bytes data` is the following:
 
 # Specification of Utility libraries  
 
-Due to the complex ABI-encodings of AZTEC proofs, it is neccessary to define utility libraries that abstract away this complexity from a digital asset builder.  
+There are various utility contracts/libraries that are used to make the protocol smart contract system more modulular and self documenting. These include:
+
+- `LibEIP712.sol` - helpers for validating EIP712 signatures
+- `MetaDataUtils.sol` - helpers for extracting Ethereum addresses from a note's metaData
+- `Modifiers.sol` - base contract intended to define commonly used function modifiers. To be inherited by other contracts. Currently provides the `checkZeroAddress()` modifier
+- `NoteUtils.sol` - helpers that extract user-readable information from proofOutputs. Detailed below.
+- `ProofUtils.sol` - decompose a `uint24 proofId` into it's three constituent `uint8` components: epoch, category and id
+- `SafeMath8.sol` - SafeMath operations for `uint8` variables
+- `VersioningUtils.sol` - helper to extract the three constiutent `uint8` variables compressed into a `uint24`
 
 ## NoteUtils.sol  
 
-The `NoteUtils` library provides helper methods that enable data to be extracted from `bytes memory proofOutputs`.  
+A particularly useful utility library is `NoteUtils.sol` . This was built to abstract away the complexities of an AZTEC proof's ABI-encoding from a digital asset builder. It provides helper methods that enable data to be extracted from `bytes memory proofOutputs`:
 
 ### `NoteUtils.getLength(bytes memory proofOutputsOrNotes) internal pure returns (uint256 length)`  
 
@@ -1315,3 +1665,4 @@ The zero-knowledge proofs in ACE enable the above exchange to occur with a gaura
 | balancing relationship | a instance of AZTEC note creation / destruction, where the sum of the values of the created notes is equal to the sum of the values of the destroyed notes |  
 | mixed asset | a zero-knowledge AZTEC asset that both has a private representation (via AZTEC notes) and a public representation (via ERC20-like tokens) |  
 | private asset | a zero-knowledge AZTEC asset where ownership is defined entirely through AZTEC notes and there is no linked ERC20 token. Such assets must directly create AZTEC notes via `confidentialMint` instructions |
+
