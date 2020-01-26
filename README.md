@@ -115,9 +115,9 @@ Treasury notes would enable a single 'account' to have their balance represented
 | 0x60   | -      | metaData | bytes | custom metaData associated with note |  
 
 ### metaData
-`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information and is broadcast by events involving a note.
+`metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information that is broadcast by events involving a note.
 
-The metaData schema has a default component and then an additional `customData` component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key whichcan be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, resulting in a schema as below:
+The metaData schema has a default component and then an additional `customData` component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key which can be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, which in the current AZTEC implementation allows: IES encrypted viewing keys, addresses approved to view the note and arbitrary app data to be appended. This results in a schema as below:
 
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
@@ -129,20 +129,67 @@ The metaData schema has a default component and then an additional `customData` 
 | 0xa1 + L_addresses | L_encryptedViewKeys | encryptedViewKeys | bytes[] | IES encrypted viewing keys, for each address |  
 | 0xa1 + L_addresses + L_encryptedViewKeys | L_appData | appData | bytes[] | application specific data |  
 
-Therefore, included in the `metaData` is: the note ephemeral key, a series of IES encrypted viewing keys for use in granting note access to third parties and data for application specific use cases. These are used to enable various functionality as defined below.
+These various types of additional information are used to enable functionality which is described below and relies on an additional AZTEC package - `note-access` - to generate it.
 
 
-#### Use 1: Recovering viewing key using the ephemeral key
-Every note viewing key should be distinct, however users should not have to manage a multitude of unique viewing keys. In addition, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover. This process should be non-interactive.
+#### Use 1: Recovering note viewing key using the ephemeral key
+The `metaData` by default stores for every note an 'ephemeral' public key. This can be used by the `noteOwner` to derive the vieiwng key for their note and so be able to decrypt their note. 
+
+The requirement of storing the 'ephemeral' key arises from the fact that each note viewing key is distinct, however it is also desirable that users should not have to manage a multitude of unique viewing keys. As well as this, if user A wishes to send user B a note, they should be able to derive a viewing key that A can recover and the process should be non-interactive.
 
 The solution is to use a shared secret protocol, between an 'ephemeral' public/private key pair and the public key of the note owner. An extension of this protocol can be used to derive 'stealth' addresses, if the recipient has a stealth wallet. Currently, our V1 APIs use the basic shared secret protocol for ease of use (traditional Ethereum wallets can own these kinds of AZTEC notes). At the smart contract level, the protocol is forward-compatible with stealth addresses.
 
-Therefore, the first use of the metaData field is to store the data that a user requires to recover their note viewing key - the 'ephemeral' public key. 
-
 #### Use 2: Granting view key access
-Note viewing key access can be directly granted to third parties by encoding an IES encrypted viewing key and the associated approved address into the `metaData`. This allows a method whereby viewing key access can be efficiently computed, without having to derive using the ephemeral key. 
+The `approvedAddresses` and `encryptedViewKeys` part of the `metaData` originates from a requirement of `noteOwner`s being able to grant third parties view access to their notes. 
 
-Granting of viewing keys is supported by the `zkAsset.updateNoteMetaData(bytes32 noteHash, bytes calldata metaData)` function. This allows the `metaData` of an already existing note to be updated, and so grant viewing key access to additional parties. 
+The `approvedAddress` is an Ethereum address that is being granted view access, and the `encryptedViewKey` is the note's viewing key which has been IES encrypted using the public key of the `approvedAddress`. This makes it possible for the intended `approvedAddress` to decrypt the viewing key of the note (the `metaData` is broadcast on chain), and so able to view the note value. 
+
+It should be noted that this is also the principle method by which `noteOwner`s are granted access to their viewing key, rather than the ephemeral key method. This technique is computationally efficient, whereas computing a viewing key from an `ephemeralKey` can take 10s of seconds.
+
+A function exists on the `ZkAsset` contract to support the granting of view key access via this method - `zkAsset.updateNoteMetaData(bytes32 noteHash, bytes calldata metaData)`. This allows the `metaData` of an already existing note to be updated, and so grant viewing key access to additional parties. 
+
+##### How the grant view access metaData is generated
+Generating `encryptedViewKeys`, `approvedAddresses` and formatting them into the required schema is performed by an AZTEC helper module called `note-access`. 
+
+This helper module exposes a key method `generateAccessMetaData()`:
+
+```
+/**
+ * @method generateAccessMetaData - grant an Ethereum address view access to a note
+ * @param {Array} access - mapping between an Ethereum address and the linked public key. The specified address
+ * is being granted access to the note
+ * @param {String} noteViewKey - viewing key of the note
+ */
+export default function generateAccessMetaData(access, noteViewKey) {
+    const noteAccess = access.map(({ address, linkedPublicKey }) => {
+        const viewingKey = encryptedViewingKey(linkedPublicKey, noteViewKey);
+        return {
+            address,
+            viewingKey: viewingKey.toHexString(),
+        };
+    });
+    return addAccess('', noteAccess);
+}
+```
+
+As inputs it takes an `access` object and the `noteViewKey`. The `access` object is used to define which Ethereum addresses are to be given view access to the note. The actual encryption is performed using the `tweetnacl` library: https://www.npmjs.com/package/tweetnacl .
+
+The `generateAccessMetaData()` function is itself called on the `Note` class via the method:
+
+```
+/**
+ * Grant an Ethereum address access to the viewing key of a note
+ *
+ * @param {Array} access mapping between an Ethereum address and the linked publickey
+ * @returns {string} customData - customMetaData which will grant the specified Ethereum address(s)
+ * access to a note
+ */
+grantViewAccess(access) {
+    const noteViewKey = this.getView();
+    const metaData = generateAccessMetaData(access, noteViewKey);
+    this.setMetaData(metaData);
+}
+```
 
 #### Use 3: Application specific data
 Lastly, application specific data can be attached to the `metaData` of a note. This gives digital asset builders the option to attach custom data to an AZTEC note for an application specific utility. 
@@ -335,8 +382,7 @@ Contracts can query `ACE` with a `bytes proofOutput`, combined with a `uint24 _p
 This mechanism enables smart contracts to issue transfer instructions on behalf of both users and other smart contracts, enabling zero-knowledge confidential dApps. 
 
 ## ACE owner
-It should be noted that in upon deployment, the owner of the ACE will be a multi-signature wallet.
-
+It should be noted that upon deployment, the owner of the ACE will be a multi-signature wallet. The multi-sig wallet used is defined here: https://github.com/AztecProtocol/AZTEC/blob/develop/packages/protocol/contracts/MultiSig/MultiSigWalletWithTimeLock.sol
 
 # The key responsibilities of `ACE`  
 
