@@ -560,7 +560,7 @@ Flag determining whether the note registry has public to private, and vice versa
 
 Total number of tokens supplemented to the ACE, as a result of tokens being transferred when conversion of minted notes to public value was attempted and there were not sufficient tokens held by ACE.
 
-## Implementation and upgradeability functionality
+## Implementation and upgradeability
 
 In order to guarantee the correct implementation of any operation affecting the state of note registries within the AZTEC ecosystem, all of the data and behaviour relating to note registries is encapsulated in the AZTEC Cryptography Engine.
 
@@ -854,7 +854,7 @@ Assets that have a note registry version of epoch 2 (Behaviour201911) will be **
 
 ```
 contract Behaviour201911 is Behaviour201907 {
-    uint256 public constant slowReleaseEnd = 1580515200;
+    uint256 public constant slowReleaseEnd = 1585699199;
     bool public isAvailableDuringSlowRelease = false;
 
     modifier onlyIfAvailable() {
@@ -886,7 +886,7 @@ contract Behaviour201911 is Behaviour201907 {
 }
 ```
 
-The slow release period length is defined by the variable `slowReleaseEnd`, after which the asset will automatically become available. The restricting of availability up to this point is defined through the use of the function modifier `onlyIfAvailable()` which modifiers the behaviour of the key `updateNoteRegistry()` function. 
+The slow release period length is defined by the variable `slowReleaseEnd`, after which the asset will automatically become available. `slowReleaseEnd` is set to the unix timestamp of 1585699199, which corresponds to the 31st March 2020, 23:59:59 UTC. The restricting of availability up to this point is defined through the use of the function modifier `onlyIfAvailable()` which modifiers the behaviour of the key `updateNoteRegistry()` function. 
 
 It is also possible for the `ZkAsset` owner to make the asset available earlier than the end of the burn-in period, by calling the `makeAvailable()` method.
 
@@ -1308,7 +1308,7 @@ contract IAccountRegistryBehaviour {
 ### User registration with the SDK
 The AZTEC SDK is a high level library with a UI component which abstracts away many of the complexities involved in using AZTEC - such as note and viewing key management. In order to first use the SDK, users need to register with it the Ethereum address that they will use to interact with AZTEC.  
 
-This is performed by calling 
+This is performed by calling `registerAZTECExtension()` as below:
 
 ```
 /**
