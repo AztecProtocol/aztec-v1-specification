@@ -1390,8 +1390,6 @@ contract IAccountRegistryBehaviour {
         bytes calldata _signature
     ) external;
 
-    function initialize(address _aceAddress, address _trustedGSNSignerAddress) external;
-
     function confidentialTransferFrom(
         uint24 _proofId,
         address _registryOwner,
