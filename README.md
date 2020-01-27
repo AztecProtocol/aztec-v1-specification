@@ -1403,6 +1403,7 @@ An overview of the broader architecture in which the `AccountRegistry.sol` sits 
 - (S): server
 - (C): contract
 
+![Account-registry-overview](https://github.com/AztecProtocol/specification/blob/master/AccountRegistryOverview.png?raw=true)  
 
 1. Dapp makes a request to the SDK to construct a proof (e.g. a JoinSplit)
 2. User is prompted for necessary approvals from their custody account (MetaMask). These approvals are either ERC20 allowances, or EIP712 signatures to spend AZTEC notes depending on the type of interaction the dApp requests. (Not always transactions). The SDK also signs the transaction with the user's `linkedPublicKey` private key `PK`.
