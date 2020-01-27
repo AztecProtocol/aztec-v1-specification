@@ -1310,13 +1310,11 @@ contract IAccountRegistryBehaviour {
 ### User registration with the SDK
 The AZTEC SDK is a high level library with a UI component which abstracts away many of the complexities involved in using AZTEC - such as note and viewing key management. In order to first use the SDK, users need to register with it the Ethereum address that they will use to interact with AZTEC.  
 
-Each user is generated a `linkedPublicKey` and `AZTECaddress` when they first sign up with the SDK. The `linkedPublicKey` is a 32 byte public key defined over `curve25519`, which is later used to IES encrypt that user's viewing key in the note `metaData`. This `linkedPublicKey` has a corresponding privateKey, call it `PK`, which is stored in the SDK.  
+Each user is generated a `linkedPublicKey` and `AZTECaddress` when they first sign up with the SDK. The `linkedPublicKey` is a 32 byte public key defined over the elliptic curve `curve25519`, which is later used to IES encrypt that user's viewing key in the note `metaData`. This `linkedPublicKey` has a corresponding privateKey, call it `PK`, which is stored in the SDK.  
 
-When transactions are being sent via the GSN and having their gas paid for, AZTEC servers first sign the transaction with the user's `PK`. This makes the transaction eligible to have it's gas paid by AZTEC. 
+When transactions are being sent via the GSN and having their gas paid for, the SDK first programmatically signs the transaction with the user's `PK` over Ethereum's `secp256k1`. This is done, rather than through MetaMask, to save on a MetaMask popup signing prompt. The address that is recovered from a transaction signed in this way, using `ecrecover` is called the `AZTECaddress`. 
 
-The `AZTECaddress` is the address recovered using `ecrecover` if `PK` is used to sign a transaction over the `secp256k1` Ethereum elliptic curve. 
-
-The two variables `linkedPublicKey` and `AZTECaddress` are passed to `registerAZTECExtension()` according to:
+These two variables `linkedPublicKey` and `AZTECaddress` are then passed to `registerAZTECExtension()`:
 ```
 /**
  * @dev Registers a linkedPublicKey to an Ethereum address, if a valid signature is provided or the
@@ -1346,13 +1344,13 @@ accountMapping[_account] = _linkedPublicKey;
 userToAZTECAccountMapping[_account] = _AZTECaddress;
 ```
 
-The `accountMapping` maps the user's Ethereum address to their `linkedPublicKey` and is used as.....
+The `accountMapping` maps the user's Ethereum address to their `linkedPublicKey`. This is used in the SDK as a lookup/easy reference to find a particular user's `linkedPublicKey`. 
 
-The `userToAZECAccountMapping` maps a user's Ethereum address to their 'AZTEC Ethereum address' - the one that would be recovered if the `curve25519` `linkedPublicKey` private key was used to sign a tx over the `secp256k1` curve. This mapping's purpose is to assist with the permissioning around who can call `Behaviour.deposit()` and deposit to a user's address. 
+The `userToAZECAccountMapping` maps a user's Ethereum address to their `AZTECaddress` - the one that would be recovered if the `linkedPublicKey` private key was used to sign a tx over the Ethereum`secp256k1` curve. This mapping's purpose is to assist with the permissioning around who can call `Behaviour.deposit()` and deposit to a user's address. 
 
 
 ### Meta-transactions via the GSN
-To abstract gas away from users, the SDK makes use of the gas station network and it's relayer system. This allows for meta-transactions and The GSN enabled `recipient` contract in the AZTEC ecosystem is the `AccountRegistry.sol`. 
+To abstract gas away from users, the SDK makes use of the gas station network and it's relayer system to enable meta-transactions. The GSN enabled `recipient` contract in the AZTEC ecosystem is the `AccountRegistry.sol`. 
 
 It enables standard AZTEC functionality principally through two methods: `deposit()` and `confidentialTransferFrom()`. The contract's GSN behaviour is enabled by inheriting from two GSN related contracts:
 
@@ -1362,12 +1360,14 @@ This is the base GSN recipient contract which enables standard GSN behaviour suc
 #### 2) `GSNRecipientTimestampSignature.sol` 
 This is a custom AZTEC bouncer GSN contract whose purpose is to restrict/provide permissioning as to which Ethereum accounts are allowed to make use of AZTEC meta-transactions.
 
-The GSN works by requiring that the gas payer, in this case the AZTEC `AccountRegistry` contract, maintains a deposit of Ether on the GSN `RelayHub` contract. This balance decreases over time as user's transactions are processed and paid for. In order to prevent spam and the malicious draining of funds, the `GSNRecipientTimestampSignature.sol` exists to provide permissioning as to which users are eligible to have free transactions. 
+The GSN works by requiring that the gas payer, in this case the AZTEC `AccountRegistry` contract, maintain a deposit of Ether on the GSN `RelayHub` contract. This balance decreases over time as user's transactions are processed and paid for. In order to prevent spam and the malicious draining of funds, the `GSNRecipientTimestampSignature.sol` exists to provide permissioning as to which users are eligible to have free transactions. 
 
 It does this through the method `acceptRelayedCall()`. This is called before a transaction is sent and processed by the GSN. It takes `approvalData` as a argument, which is then decoded to generate two parameters: `maxTimestamp` and `signature`. 
 
 ##### `maxTimestamp`
-`maxTimestamp` represents the maximum length of time for which a signed free transaction is valid to have it's gas paid for. This is important because although it is AZTEC servers that sign transaction to be relayed, users can technically relay them at any point in time. This opens up the possibility of a malicious user accumulating large numbers of signed transactions and then griefing the AZTEC contracts, draining all the GSN ether. By including the following check in `acceptRelayedCall()` 
+`maxTimestamp` represents the maximum length of time for which a signed free transaction is valid to have it's gas paid for.
+
+This is important because although it is AZTEC servers that sign transactions to be relayed, users can technically relay them at any point in time. This opens up the possibility of a malicious user accumulating large numbers of signed transactions and then griefing the AZTEC contracts, draining all the GSN ether. By including the following check in `acceptRelayedCall()` 
 
 ```
 if (block.timestamp > maxTimestamp) {
@@ -1377,10 +1377,12 @@ if (block.timestamp > maxTimestamp) {
 
 griefing attacks are mitigated. 
 
-##### `signature`
-`signature` is produced using an AZTEC server private key. All transactions sent via the SDK, which qualify for the AZTEC meta-transactions, are signed by this AZTEC private key and it provides proof that the transaction is authorised to have it's gas paid for. 
+`maxTimestamp` is currently set to approximately 2hrs - it is defined and stored on AZTEC servers.
 
-The AZTEC server private key has a corresponding Ethereum address referred to as the `trustedSigner` or `_trustedGSNSignerAddress`. The `acceptRelayedCall()` method checks in the following segment that the transaction was indeed signed by the `trustedSigner`:
+##### `signature`
+`signature` is produced using an AZTEC server private key. When a transaction is signed in the SDK using the users `PK`, it is then relayed to AWS. AWS stores the AZTEC server private key, which then signs the transaction object received. This action generates `signature`, which is then used in the permissioning as to which transactions are eligible to have their gas paid for. 
+
+This permissioning works because the AZTEC server private key has a corresponding Ethereum address referred to as the `trustedSigner` or `_trustedGSNSignerAddress`. The `acceptRelayedCall()` method checks in the following segment that the transaction was indeed signed by the `trustedSigner`:
 
 ```
 if (keccak256(blob).toEthSignedMessageHash().recover(signature) == _trustedSigner) {
