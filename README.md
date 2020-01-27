@@ -518,11 +518,39 @@ If the proof is not valid, an error will be thrown. If the proof is valid, a `by
 ## Creating a note registry
 An instance of a note registry is created inside ACE, via `createNoteRegistry(address _linkedTokenAddress, uint256 _scalingFactor, bool _canAdjustSupply, bool _canConvert)`.
 
-The `_canAdjustSupply` flag defines whethe the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_canConvert` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_canConvert` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
+The `_canAdjustSupply` flag defines whether the note registry owner an directly modify the note registry state by minting and burning AZTEC notes. The `_canConvert` flags defines whether ERC20 tokens from `_linkedTokenAddress` can be converted into AZTEC notes. If `_canConvert` is `false`, then `_linkedTokenAddress = address(0)` and the asset is a fully private asset.  
 
 For a given note registry, only the owner can call `ACE.updateNoteRegistry`, `ACE.mint` or `ACE.burn`. Traditionally this is imagined to be a `zkAsset` smart contract. This allows the `zkAsset` contract to have absolute control over what types of proof can be used to update the note registry, as well as the conditions under which updates can occur (if extra validation logic is required, for example).  
 
 ## Note Registry Variables  
+
+### `NoteRegistryBehaviour behaviour`
+
+Address of the note registry behaviour contract, cast with the specific version of the `NoteRegistryBehaviour` interace being used.
+
+### `IERC20Mintable linkedToken`
+
+Address of the linked `ERC20` token, cast with the required interface `IERC20Mintable`.
+
+### `uint24 latestFactory`
+
+Unique ID of the latest note registry factory contract version.
+
+### `uint256 totalSupply`  
+
+This variable represents the total amount of tokens that currently reside within `ACE` as a result of tokens being converted into AZTEC notes, for a given note registry.
+
+### `totalSupplemented`
+
+Total number of tokens supplemented to the ACE, as a result of tokens being transferred when conversion of minted notes to public value was attempted and there were not sufficient tokens held by ACE.
+
+### `mapping (address => mapping(bytes32 => uint256)) publicApprovals` 
+
+Mapping of `publicOwner` => `proofHash` => number of tokens approved to be spent on behalf of that `proof` and `publicOwner`.
+
+
+
+It should be noted that the various `NoteRegistryBehaviour` versions may have a different set of variables, as specified in the relevant interface contract. These can include:
 
 ### `bytes32 confidentialTotalMinted`  
 
@@ -542,10 +570,6 @@ If this registry permits conversions from AZTEC notes into tokens, `scalingFacto
 
 This is required because the maximum value of an AZTEC note is approximately `2^26` (it is dependent on ACE's common reference string) - there is an associated loss of precision when converting a `256` bit variable into a `26` bit variable.
 
-### `uint256 totalSupply`  
-
-This variable represents the total amount of tokens that currently reside within `ACE` as a result of tokens being converted into AZTEC notes, for a given note registry.
-
 ### `ERC20 linkedToken`  
 
 This is the address of the registry's linked ERC20 token. Only one token can be linked to an address.
@@ -558,9 +582,6 @@ Flag determining whether the note registry has minting and burning priviledges.
 
 Flag determining whether the note registry has public to private, and vice versa, conversion priviledges.
 
-### `totalSupplemented`
-
-Total number of tokens supplemented to the ACE, as a result of tokens being transferred when conversion of minted notes to public value was attempted and there were not sufficient tokens held by ACE.
 
 ## Implementation and upgradeability
 
@@ -1016,7 +1037,7 @@ contract IZkAsset {
     event ApprovedAddress(address indexed addressApproved, bytes32 indexed noteHash);
     event CreateNoteRegistry(uint256 noteRegistryId);
     event CreateNote(address indexed owner, bytes32 indexed noteHash, bytes metadata);
-    event DestroyNote(address indexed owner, bytes32 indexed noteHash, bytes metadata);
+    event DestroyNote(address indexed owner, bytes32 indexed noteHash);
     event ConvertTokens(address indexed owner, uint256 value);
     event RedeemTokens(address indexed owner, uint256 value);
     event UpdateNoteMetaData(address indexed owner, bytes32 indexed noteHash, bytes metadata);
@@ -1059,7 +1080,7 @@ However, this method is not suitable for a delegated transfer calling `confident
 There are two flavours of this permissioning granting function: `confidentialApprove()` and `approveProof()`. The first allows permission to be granted for an individual note, the second allows permission to be granted for a particular proof and so in a single call potentially approve multiple notes for spending.
 
 
-### confidentialApprove  
+### confidentialApprove()  
 
 The `confidentialApprove(bytes32 _noteHash, address _spender, bool _status, bytes memory _signature)` method gives the `_spender` address permission to use an AZTEC note, whose hash is defined by `_noteHash`, to be used in a zero-knowledge proof.  
 
