@@ -1395,6 +1395,23 @@ if (keccak256(blob).toEthSignedMessageHash().recover(signature) == _trustedSigne
 }
 ```
 
+## Architecture and flow
+An overview of the broader architecture in which the `AccountRegistry.sol` sits is presented below. The key steps involved in the flow of a user sending a meta-transaction are highlighted. For the purposes of the flow it is assumed that the user has already registered with the AZTEC SDK.
+
+**Key**
+- (UI): user interface
+- (S): server
+- (C): contract
+
+
+1. Dapp makes a request to the SDK to construct a proof (e.g. a JoinSplit)
+2. User is prompted for necessary approvals from their custody account (MetaMask). These approvals are either ERC20 allowances, or EIP712 signatures to spend AZTEC notes depending on the type of interaction the dApp requests. (Not always transactions). The SDK also signs the transaction with the user's `linkedPublicKey` private key `PK`.
+3. GSN RelayHub is queried, to select a relayer which will be used to relay the eventual transaction
+5. Transaction is signed by the AZTEC server private key, stored on AWS - entitling it to have it's gas paid for by AZTEC
+6. SDK relays the signed transaction to the selected GSN relayer
+7. GSN relayer sends the transaction which calls the appropriate method on the `AccountRegistry.sol` contract e.g. `deposit()` or `confidentialTransferFrom()`
+
+
 ## Upgradeability pattern
 To facilitate the potential future addition of other methods whereby AZTEC users can be registered and possible contract purpose expansion, `AccountRegistry.sol` is upgradeable. 
 
