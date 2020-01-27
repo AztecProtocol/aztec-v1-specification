@@ -119,7 +119,7 @@ Treasury notes would enable a single 'account' to have their balance represented
 ### metaData
 `metaData` is a general purpose data field for notes. It is not used by the logic of AZTEC zero-knowlege proof validators, but instead contains implementation and application specific information that is broadcast by events involving a note.
 
-The metaData schema has a default component and then an additional `customData` component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key which can be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, which in the current AZTEC implementation allows: IES encrypted viewing keys, addresses approved to view the note and arbitrary app data to be appended. This results in a schema as below:
+The metaData schema has a default component and then an additional `customData` component that can be set if the associated functionality is required. By default, it is populated with the ephemeral key which can be used to recover a note viewing key (see below). Additional custom data can be appended by calling `note.setMetaData()`, which in the current AZTEC implementation allows: encrypted viewing keys, addresses approved to view the note and arbitrary app data to be appended. This results in a schema as below:
 
 | Offset | Length | Name | Type | Description |  
 | --- | --- | --- | --- | --- |  
@@ -128,7 +128,7 @@ The metaData schema has a default component and then an additional `customData` 
 | 0x41 | 0x20 | encryptedViewKeysOffset | uint256 | relative offset to `bytes[] encryptedViewKeys` |  
 | 0x61 | 0x20 | appDataOffset | int256 | relative offset to `bytes[] appData` |  
 | 0x81 | L_addresses | approvedAddresses | address[] | addresses approved for access to viewing key |  
-| 0xa1 + L_addresses | L_encryptedViewKeys | encryptedViewKeys | bytes[] | IES encrypted viewing keys, for each address |  
+| 0xa1 + L_addresses | L_encryptedViewKeys | encryptedViewKeys | bytes[] | encrypted viewing keys, for each address |  
 | 0xa1 + L_addresses + L_encryptedViewKeys | L_appData | appData | bytes[] | application specific data |  
 
 These various types of additional information are used to enable functionality which is described below and relies on an additional AZTEC package - `note-access` - to generate it.
@@ -144,7 +144,7 @@ The solution is to use a shared secret protocol, between an 'ephemeral' public/p
 #### Use 2: Granting view key access
 The `approvedAddresses` and `encryptedViewKeys` part of the `metaData` originates from a requirement of `noteOwner`s being able to grant third parties view access to their notes. 
 
-The `approvedAddress` is an Ethereum address that is being granted view access, and the `encryptedViewKey` is the note's viewing key which has been IES encrypted using the public key of the `approvedAddress`. This makes it possible for the intended `approvedAddress` to decrypt the viewing key of the note (the `metaData` is broadcast on chain), and so able to view the note value. 
+The `approvedAddress` is an Ethereum address that is being granted view access, and the `encryptedViewKey` is the note's viewing key which has been encrypted using the public key of the `approvedAddress`. This makes it possible for the intended `approvedAddress` to decrypt the viewing key of the note (the `metaData` is broadcast on chain), and so able to view the note value. 
 
 It should be noted that this is also the principle method by which `noteOwner`s are granted access to their viewing key, rather than the ephemeral key method. This technique is computationally efficient, whereas computing a viewing key from an `ephemeralKey` can take 10s of seconds.
 
@@ -174,7 +174,7 @@ export default function generateAccessMetaData(access, noteViewKey) {
 }
 ```
 
-As inputs it takes an `access` object and the `noteViewKey`. The `access` object is used to define which Ethereum addresses are to be given view access to the note. The actual encryption is performed using the `tweetnacl` library: https://www.npmjs.com/package/tweetnacl .
+As inputs it takes an `access` object and the `noteViewKey`. The `access` object is used to define which Ethereum addresses are to be given view access to the note. The actual encryption is performed using the `tweetnacl` library: https://www.npmjs.com/package/tweetnacl, which itself makes use of elliptic curve Diffie-Hellman key exchange over Curve25519-XSalsa20-Poly1305.
 
 The `generateAccessMetaData()` function is itself called on the `Note` class via the method:
 
@@ -1182,7 +1182,7 @@ function updateNoteMetaData(bytes32 noteHash, bytes memory metaData) public {
 }
 ```
 
-The purpose of this method is to ultimately emit a new event `UpdateNoteMetaData(noteOwner, noteHash, metaData)` with updated `metaData`.The `metaData` is the updated `metaData` which contains the IES encrypted  viewing keys for all parties that are to be granted note view access. 
+The purpose of this method is to ultimately emit a new event `UpdateNoteMetaData(noteOwner, noteHash, metaData)` with updated `metaData`.The `metaData` is the updated `metaData` which contains the encrypted  viewing keys for all parties that are to be granted note view access. 
 
 #### Permissioning
 The permissioning of this function is of critical importance - as being able to call this function allows note view access to be given to an arbitrary address. To this end, there is a `require()` statement which enforces that one of the two valid groups of users are calling this function. It will revert if not.
@@ -1310,7 +1310,7 @@ contract IAccountRegistryBehaviour {
 ### User registration with the SDK
 The AZTEC SDK is a high level library with a UI component which abstracts away many of the complexities involved in using AZTEC - such as note and viewing key management. In order to first use the SDK, users need to register with it the Ethereum address that they will use to interact with AZTEC.  
 
-Each user is generated a `linkedPublicKey` and `AZTECaddress` when they first sign up with the SDK. The `linkedPublicKey` is a 32 byte public key defined over the elliptic curve `curve25519`, which is later used to IES encrypt that user's viewing key in the note `metaData`. This `linkedPublicKey` has a corresponding privateKey, call it `PK`, which is stored in the SDK.  
+Each user is generated a `linkedPublicKey` and `AZTECaddress` when they first sign up with the SDK. The `linkedPublicKey` is a 32 byte public key defined over the elliptic curve `curve25519`, which is later used to encrypt that user's viewing key in the note `metaData`. This `linkedPublicKey` has a corresponding privateKey, call it `PK`, which is stored in the SDK.  
 
 When transactions are being sent via the GSN and having their gas paid for, the SDK first programmatically signs the transaction with the user's `PK` over Ethereum's `secp256k1`. This is done, rather than through MetaMask, to save on a MetaMask popup signing prompt. The address that is recovered from a transaction signed in this way, using `ecrecover` is called the `AZTECaddress`. 
 
