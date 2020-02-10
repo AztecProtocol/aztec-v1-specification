@@ -408,7 +408,7 @@ Because of these dual responsibilities, it might seem intuitive to roll proof va
 
 # Contract Interactions  
 
-![user-to-validator](https://github.com/CreditMint/wiki/blob/master/userToValidator.png?raw=true)  
+![user-to-validator](https://github.com/AztecProtocol/specification/blob/master/userToValidator.png?raw=true)  
 
 Transaction #1  
 
@@ -434,7 +434,7 @@ The following image depicts the flow of a zero-knowledge dApp that utilizes the 
 
 The dApp-to-zkAsset interactions are identical for both `zkAsset A` and `zkAsset B`. To simplify the description we only describe the interactions for one of these two assets.
 
-![zk-dapp-flow](https://github.com/CreditMint/wiki/blob/master/zkDappFlow2.png?raw=true)  
+![zk-dapp-flow](https://github.com/AztecProtocol/specification/blob/master/zkDappFlow2.png?raw=true)  
 
 ### (1-5) : Validating the proof  
 
