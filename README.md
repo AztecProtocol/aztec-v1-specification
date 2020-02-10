@@ -91,7 +91,7 @@ The ABI encoding of a note is as follows:
 | ------ | ------ | -------- | --- | --- |
 | 0x00   | 0x20   | id | uint256 | The 'type' identifier of the note |
 | 0x20   | 0x20   | owner | address | Ethereum address of note owner |
-| 0x40   | 0x60   | noteHash | bytes32 | Hash of the note's elliptic curve points: gamma and sigma |
+| 0x40   | 0x20   | noteHash | bytes32 | Hash of the note's elliptic curve points: gamma and sigma |
 | 0x60   | L_pub   | publicKey | bytes | The public key of the note, that is used to encrypt value |  
 | 0x60 + L_pub | L_met | metaData | bytes | Note-specific metaData |
 
