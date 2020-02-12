@@ -1526,6 +1526,20 @@ An overview of the broader architecture in which the `AccountRegistry.sol` sits 
 6. SDK relays the signed transaction to the selected GSN relayer
 7. GSN relayer sends the transaction which calls the appropriate method on the `AccountRegistry.sol` contract e.g. `deposit()` or `confidentialTransferFrom()`
 
+## Potential issues to be aware of
+The `AccountRegistry` behaviour contract has two issues related to potential front running attacks: https://github.com/AztecProtocol/AZTEC/issues/456 and https://github.com/AztecProtocol/AZTEC/issues/461. Both concern potential front-running attacks: the first to block a correct deployment, and the second to tip off an attacker that a user's key has been compromised. 
+
+### 1) Front-running to block a correct deployment: https://github.com/AztecProtocol/AZTEC/issues/456
+As explained in the linked issue, initializing the `Behaviour20200106.sol` contract requires that the `initialize()` method is called. There is no access permission on this function, so it is callable by any address. This means that an attacker could potentially front-run a legitimate initialisation call and supply bogus parameters. 
+
+This would prevent the contract from being used as intended, but given that the method is protected by an `initializer` modifier (so it can only be called once), this attack would be known and another deployment could proceed. As outlined in the issue, extra gas should be used on deploy when calling the `initalize()` method. 
+
+### 2) Front-running in the case of key compromise: https://github.com/AztecProtocol/AZTEC/issues/461
+The linked issue details a potential front running attack on the `registerAZTECExtension()` function that is possible in the event of a user key compromise. 
+
+This function registers a user's Ethereum address alongside an `_AZTECaddress`. In the case that the private key to the `AZTECaddress` is compromised, the user would likely re-register by calling `registerAZTECExtension()` with a different linked `AZTECaddress`. An attacker may see this unconfirmed transaction, be tipped off that a key was compromised as a result, and so front-run calls to other functions such as `deposit()`. 
+
+As the linked issue points out, extra gas should be used when calling `registerAZTECExtension()` in the case of a key compromise.
 
 ## Upgradeability pattern
 To facilitate the potential future addition of other methods whereby AZTEC users can be registered and possible contract purpose expansion, `AccountRegistry.sol` is upgradeable. 
